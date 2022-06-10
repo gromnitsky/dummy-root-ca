@@ -2,6 +2,8 @@
 
 subjectAltName :=
 
+all: $(shell hostname -f).crt
+
 root.crt: root.pem
 	openssl req -x509 -key $< -out $@ -days 3650 \
 	 -subj /CN="$$USER Test Root CA" \
@@ -16,9 +18,9 @@ root.crt: root.pem
 	openssl req -x509 -key $< -CA root.crt -CAkey root.pem -out $@ \
 	 -days 365 \
 	 -subj /CN=$(basename $@) \
-	 -addext subjectAltName=$(or $(subjectAltName),$(call mk_subjectAltName,$@)) \
+	 -addext subjectAltName=$(or $(subjectAltName),$(mk_subjectAltName)) \
 	 -addext basicConstraints=critical,CA:FALSE \
 	 -addext extendedKeyUsage=serverAuth \
 	 -addext keyUsage=digitalSignature,nonRepudiation,keyEncipherment,keyAgreement
 
-mk_subjectAltName = DNS:$(basename $1),$(shell ip -br addr | awk '{split($$3, a, "/"); print "IP:"a[1]}' | paste -sd , -)
+mk_subjectAltName = DNS:$(basename $@),$(shell ip -br addr | awk '{split($$3, a, "/"); print "IP:"a[1]}' | paste -s -d,)
