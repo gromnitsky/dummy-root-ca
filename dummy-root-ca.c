@@ -15,6 +15,17 @@ void files_on_select_changed(GtkWidget *widget) {
   gtk_tree_selection_unselect_all(w);
 }
 
+void files_init(GtkBuilder *bld) {
+  GtkTreeStore *ts = GTK_TREE_STORE(gtk_builder_get_object(bld, "files_ts"));
+  GtkTreeIter i;
+  gtk_tree_store_append(ts, &i, NULL);
+  gtk_tree_store_set(ts, &i, 0, "Root", -1);
+  gtk_tree_store_set(ts, &i, 1, "root.pem", -1);
+  gtk_tree_store_set(ts, &i, 2, "root.crt", -1);
+  gtk_tree_store_append(ts, &i, NULL);
+  gtk_tree_store_set(ts, &i, 0, "Server", -1);
+}
+
 int main(int argc, char **argv) {
     gtk_init(&argc, &argv);
 
@@ -31,12 +42,7 @@ int main(int argc, char **argv) {
     g_signal_connect(window, "destroy", gtk_main_quit, NULL);
     gtk_builder_connect_signals(builder, NULL);
 
-    GtkTreeStore *filenames = GTK_TREE_STORE(gtk_builder_get_object(builder, "filenames"));
-    GtkTreeIter iter;
-    gtk_tree_store_append(filenames, &iter, NULL);
-    gtk_tree_store_set(filenames, &iter, 0, "Root", -1);
-    gtk_tree_store_set(filenames, &iter, 1, "root.pem", -1);
-    gtk_tree_store_set(filenames, &iter, 2, "root.crt", -1);
+    files_init(builder);
 
     g_object_unref(G_OBJECT(builder));
     gtk_widget_show(window);

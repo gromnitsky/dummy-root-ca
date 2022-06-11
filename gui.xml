@@ -2,7 +2,7 @@
 <!-- Generated with glade 3.38.2 -->
 <interface>
   <requires lib="gtk+" version="3.24"/>
-  <object class="GtkTreeStore" id="filenames">
+  <object class="GtkTreeStore" id="files_ts">
     <columns>
       <!-- column-name Type -->
       <column type="gchararray"/>
@@ -295,9 +295,9 @@
               <object class="GtkTreeView" id="files">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="model">filenames</property>
+                <property name="model">files_ts</property>
                 <child internal-child="selection">
-                  <object class="GtkTreeSelection" id="files_selection">
+                  <object class="GtkTreeSelection">
                     <signal name="changed" handler="files_on_select_changed" swapped="no"/>
                   </object>
                 </child>
@@ -305,7 +305,7 @@
                   <object class="GtkTreeViewColumn">
                     <property name="title" translatable="yes">Type</property>
                     <child>
-                      <object class="GtkCellRendererText" id="files_type"/>
+                      <object class="GtkCellRendererText"/>
                       <attributes>
                         <attribute name="text">0</attribute>
                       </attributes>
@@ -317,7 +317,7 @@
                     <property name="resizable">True</property>
                     <property name="title" translatable="yes">Private key</property>
                     <child>
-                      <object class="GtkCellRendererText" id="files_private_key"/>
+                      <object class="GtkCellRendererText"/>
                       <attributes>
                         <attribute name="text">1</attribute>
                       </attributes>
@@ -328,7 +328,7 @@
                   <object class="GtkTreeViewColumn">
                     <property name="title" translatable="yes">Certificate</property>
                     <child>
-                      <object class="GtkCellRendererText" id="files_cert"/>
+                      <object class="GtkCellRendererText"/>
                       <attributes>
                         <attribute name="text">2</attribute>
                       </attributes>
