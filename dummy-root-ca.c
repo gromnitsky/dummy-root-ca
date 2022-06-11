@@ -33,8 +33,25 @@ void on_out_button_clicked() {
   gtk_widget_destroy(w);
 }
 
+gboolean is_valid_domain(const gchar *cn) {
+  return g_regex_match_simple("(?=^.{1,253}$)(^(((?!-)[a-zA-Z0-9-]{1,63}(?<!-))|((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.)+[a-zA-Z]{2,63})$)", cn, 0, 0);
+}
+
+gboolean is_valid_ip4(const gchar *ip) {
+  return g_regex_match_simple("^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$", ip, 0, 0);
+}
+
 void on_CN_changed(GtkEntry *w) {
-  const gchar *cn = gtk_entry_get_text(w);
+  const gchar *cn_orig = gtk_entry_get_text(w);
+  gchar *cn = strdup(cn_orig);
+
+  GtkStyleContext *ctx = gtk_widget_get_style_context(GTK_WIDGET(w));
+  if (is_valid_domain(cn)) {
+    gtk_style_context_remove_class(ctx, "invalid_entry");
+  } else {
+    strcpy(cn, "");
+    gtk_style_context_add_class(ctx, "invalid_entry");
+  }
 
   // insert CN into 'files' table
   GtkTreeView *tv = GTK_TREE_VIEW(gtk_builder_get_object(builder, "files"));
@@ -48,6 +65,33 @@ void on_CN_changed(GtkEntry *w) {
   gtk_list_store_set(ls, &i, 1, fname, -1);
   snprintf(fname, sizeof fname, (strlen(cn) ? "%s.crt" : "%s-"), cn);
   gtk_list_store_set(ls, &i, 2, fname, -1);
+  free(cn);
+}
+
+gboolean is_valid_altname(const gchar *altname) { // empty altname is OK
+  gboolean r = TRUE;
+  gchar **list = g_regex_split_simple(",", altname, 0, 0);
+  for (gchar **p = list; *p; p++) {
+    g_strstrip(*p);
+    if (!strlen(*p)) continue;
+
+    if ( !(is_valid_domain(*p) || is_valid_ip4(*p))) {
+      r = FALSE;
+      break;
+    }
+  }
+  g_strfreev(list);
+  return r;
+}
+
+void on_subjectAltName_changed(GtkEntry *w) {
+  const gchar *altname = gtk_entry_get_text(w);
+  GtkStyleContext *ctx = gtk_widget_get_style_context(GTK_WIDGET(w));
+  if (is_valid_altname(altname)) {
+    gtk_style_context_remove_class(ctx, "invalid_entry");
+  } else {
+    gtk_style_context_add_class(ctx, "invalid_entry");
+  }
 }
 
 void on_generate_clicked() {
@@ -67,6 +111,13 @@ void on_generate_clicked() {
 
   const gchar *altname = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
   fprintf(stderr, "subjectAltName: %s\n", altname);
+  gchar **list = g_regex_split_simple(",", altname, 0, 0);
+  for (gchar **p = list; *p; p++) {
+    g_strstrip(*p);
+    if (!strlen(*p)) continue;
+    fprintf(stderr, "%s\n", *p);
+  }
+  g_strfreev(list);
 
   gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
@@ -96,6 +147,11 @@ int main(int argc, char **argv) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite2")), TRUE);
 
     gtk_widget_grab_focus(GTK_WIDGET(gtk_builder_get_object(builder, "generate")));
+
+    // load CSS
+    GtkCssProvider *cssProvider = gtk_css_provider_new();
+    gtk_css_provider_load_from_path(cssProvider, "style.css", NULL);
+    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
 
     gtk_widget_show(window);
     gtk_main();

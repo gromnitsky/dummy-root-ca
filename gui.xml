@@ -284,6 +284,7 @@
                     <property name="can-focus">True</property>
                     <property name="hexpand">True</property>
                     <property name="placeholder-text" translatable="yes">example.lan, 127.0.0.1, 192.168.1.1</property>
+                    <signal name="changed" handler="on_subjectAltName_changed" swapped="no"/>
                   </object>
                   <packing>
                     <property name="left-attach">1</property>
