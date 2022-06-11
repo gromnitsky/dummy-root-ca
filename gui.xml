@@ -9,7 +9,7 @@
     <property name="step-increment">1</property>
     <property name="page-increment">10</property>
   </object>
-  <object class="GtkListStore" id="files_ts">
+  <object class="GtkListStore" id="files_ls">
     <columns>
       <!-- column-name Type -->
       <column type="gchararray"/>
@@ -93,6 +93,7 @@
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="receives-default">True</property>
+                        <signal name="clicked" handler="on_out_button_clicked" swapped="no"/>
                       </object>
                       <packing>
                         <property name="expand">False</property>
@@ -270,6 +271,7 @@
                     <property name="can-focus">True</property>
                     <property name="hexpand">True</property>
                     <property name="placeholder-text" translatable="yes">example.lan</property>
+                    <signal name="changed" handler="on_CN_changed" swapped="no"/>
                   </object>
                   <packing>
                     <property name="left-attach">1</property>
@@ -314,7 +316,7 @@
               <object class="GtkTreeView" id="files">
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
-                <property name="model">files_ts</property>
+                <property name="model">files_ls</property>
                 <child internal-child="selection">
                   <object class="GtkTreeSelection">
                     <signal name="changed" handler="on_files_selection_changed" swapped="no"/>
