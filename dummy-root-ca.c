@@ -93,8 +93,14 @@ void on_subjectAltName_changed(GtkEntry *w) {
   }
 }
 
-void generate(const gchar *out, gint days, gchar *key_size, const gchar *cn,
-              gchar **altname, gboolean overwrite_all) {
+void on_gen_close_clicked(GtkButton *w) {
+  fprintf(stderr, "on_gen_close_clicked\n");
+  GtkWidget *gen = GTK_WIDGET(gtk_builder_get_object(builder, "gen"));
+  gtk_widget_hide(gen);
+}
+
+void generate(const gchar *out, gint days, gchar *key_size,
+                    const gchar *cn, gchar **altname, gboolean overwrite_all) {
   fprintf(stderr, "out: %s\n", out);
   fprintf(stderr, "days: %d\n", days);
   fprintf(stderr, "key size: %s\n", key_size);
@@ -104,6 +110,20 @@ void generate(const gchar *out, gint days, gchar *key_size, const gchar *cn,
   fprintf(stderr, "subjectAltName: `%s` [%ld]\n", an, strlen(an));
 
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
+
+  GtkWindow *toplevel = GTK_WINDOW(gtk_builder_get_object(builder, "toplevel"));
+  GtkWindow *gen = GTK_WINDOW(gtk_builder_get_object(builder, "gen"));
+  gtk_window_set_transient_for(gen, toplevel);
+
+  int r = gtk_dialog_run(GTK_DIALOG(gen));
+  switch (r) {
+  case GTK_RESPONSE_DELETE_EVENT:
+    on_gen_close_clicked(NULL);
+    break;
+  default:
+    fprintf(stderr, "gtk_dialog_run: %d\n", r);
+  }
+  fprintf(stderr, "generate: close\n");
 
   // cleanup
   g_free(an);
