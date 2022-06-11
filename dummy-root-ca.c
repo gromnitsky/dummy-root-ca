@@ -10,6 +10,7 @@ void files_on_select_changed(GtkWidget *widget) {
 
   gtk_tree_model_get(model, &iter, 2, &val, -1);
   printf("TODO: display the parsed cert %s\n", val);
+  g_free(val);
   //gtk_tree_model_unref_node(model, &iter);
   gtk_tree_selection_unselect_all(w);
 }
