@@ -111,19 +111,33 @@ void generate(const gchar *out, gint days, gchar *key_size,
 
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
 
-  GtkWindow *toplevel = GTK_WINDOW(gtk_builder_get_object(builder, "toplevel"));
-  GtkWindow *gen = GTK_WINDOW(gtk_builder_get_object(builder, "gen"));
-  gtk_window_set_transient_for(gen, toplevel);
+  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+  if (strlen(cn)) {
+    GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
+    char cmd[BUFSIZ];
 
-  int r = gtk_dialog_run(GTK_DIALOG(gen));
-  switch (r) {
-  case GTK_RESPONSE_DELETE_EVENT:
-    on_gen_close_clicked(NULL);
-    break;
-  default:
-    fprintf(stderr, "gtk_dialog_run: %d\n", r);
+    gtk_entry_buffer_set_text(log, "① Root private key...", -1);
+    system("./dummy-root-ca.mk root.pem");
+    gtk_progress_bar_set_fraction(progress, 0.25);
+
+    gtk_entry_buffer_set_text(log, "② Server private key...", -1);
+    snprintf(cmd, sizeof cmd, "./dummy-root-ca.mk %s.pem", cn);
+    system(cmd);
+    gtk_progress_bar_set_fraction(progress, 0.50);
+
+    gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
+    system("./dummy-root-ca.mk root.crt");
+    gtk_progress_bar_set_fraction(progress, 0.75);
+
+    gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
+    snprintf(cmd, sizeof cmd, "./dummy-root-ca.mk %s.crt", cn);
+    system(cmd);
+    gtk_progress_bar_set_fraction(progress, 1);
+
+    gtk_entry_buffer_set_text(log, "Done.", -1);
+  } else {
+    gtk_entry_buffer_set_text(log, "Error: CommonName is empty", -1);
   }
-  fprintf(stderr, "generate: close\n");
 
   // cleanup
   g_free(an);
