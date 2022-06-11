@@ -105,19 +105,29 @@ void on_generate_clicked() {
 
   gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
   fprintf(stderr, "key size: %s\n", key_size);
+  g_free(key_size);
 
   const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "CN")));
   fprintf(stderr, "CN: %s\n", cn);
 
-  const gchar *altname = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
-  fprintf(stderr, "subjectAltName: %s\n", altname);
-  gchar **list = g_regex_split_simple(",", altname, 0, 0);
+  const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
+  GArray *altname = g_array_new(TRUE, FALSE, sizeof(gchar*));
+  gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
   for (gchar **p = list; *p; p++) {
-    g_strstrip(*p);
-    if (!strlen(*p)) continue;
-    fprintf(stderr, "%s\n", *p);
+    g_strstrip(*p); if (!strlen(*p)) continue;
+
+    int len = strlen(*p)+10;
+    gchar *val = g_malloc(len);
+    snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
+    g_array_append_val(altname, val);
   }
   g_strfreev(list);
+  for (int idx=0; g_array_index(altname, gchar*, idx) != NULL; idx++) {
+    gchar *val = g_array_index(altname, gchar*, idx);
+    fprintf(stderr, "subjectAltName: %d %s\n", idx, val);
+    g_free(val);
+  }
+  g_array_free(altname, TRUE);
 
   gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
