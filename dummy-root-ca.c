@@ -94,21 +94,24 @@ void on_subjectAltName_changed(GtkEntry *w) {
   }
 }
 
-void on_generate_clicked() {
-  fprintf(stderr, "on_generate_clicked\n");
-
-  const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")));
+void generate(const gchar *out, gint days, gchar *key_size, const gchar *cn,
+              GArray *altname, gboolean overwrite_all) {
   fprintf(stderr, "out: %s\n", out);
-
-  gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "days")));
   fprintf(stderr, "days: %d\n", days);
-
-  gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
   fprintf(stderr, "key size: %s\n", key_size);
-  g_free(key_size);
-
-  const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "CN")));
   fprintf(stderr, "CN: %s\n", cn);
+  for (int idx=0; g_array_index(altname, gchar*, idx) != NULL; idx++) {
+    gchar *val = g_array_index(altname, gchar*, idx);
+    fprintf(stderr, "subjectAltName: %d %s\n", idx, val);
+  }
+  fprintf(stderr, "overwrite all: %d\n", overwrite_all);
+}
+
+void on_generate_clicked() {
+  const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")));
+  gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "days")));
+  gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
+  const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "CN")));
 
   const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
   GArray *altname = g_array_new(TRUE, FALSE, sizeof(gchar*));
@@ -122,15 +125,20 @@ void on_generate_clicked() {
     g_array_append_val(altname, val);
   }
   g_strfreev(list);
+
+  gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
+
+
+  generate(out, days, key_size, cn, altname, overwrite_all);
+
+  // cleanup
+  g_free(key_size);
+  // free altname
   for (int idx=0; g_array_index(altname, gchar*, idx) != NULL; idx++) {
     gchar *val = g_array_index(altname, gchar*, idx);
-    fprintf(stderr, "subjectAltName: %d %s\n", idx, val);
     g_free(val);
   }
   g_array_free(altname, TRUE);
-
-  gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
-  fprintf(stderr, "overwrite all: %d\n", overwrite_all);
 }
 
 
