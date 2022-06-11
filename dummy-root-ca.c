@@ -72,8 +72,7 @@ gboolean is_valid_altname(const gchar *altname) { // empty altname is OK
   gboolean r = TRUE;
   gchar **list = g_regex_split_simple(",", altname, 0, 0);
   for (gchar **p = list; *p; p++) {
-    g_strstrip(*p);
-    if (!strlen(*p)) continue;
+    g_strstrip(*p); if (!strlen(*p)) continue;
 
     if ( !(is_valid_domain(*p) || is_valid_ip4(*p))) {
       r = FALSE;
@@ -95,36 +94,60 @@ void on_subjectAltName_changed(GtkEntry *w) {
 }
 
 void generate(const gchar *out, gint days, gchar *key_size, const gchar *cn,
-              GArray *altname, gboolean overwrite_all) {
+              gchar **altname, gboolean overwrite_all) {
   fprintf(stderr, "out: %s\n", out);
   fprintf(stderr, "days: %d\n", days);
   fprintf(stderr, "key size: %s\n", key_size);
   fprintf(stderr, "CN: %s\n", cn);
-  for (int idx=0; g_array_index(altname, gchar*, idx) != NULL; idx++) {
-    gchar *val = g_array_index(altname, gchar*, idx);
-    fprintf(stderr, "subjectAltName: %d %s\n", idx, val);
-  }
+
+  gchar *an = g_strjoinv(",", altname);
+  fprintf(stderr, "subjectAltName: `%s` [%ld]\n", an, strlen(an));
+
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
+
+  // cleanup
+  g_free(an);
+}
+
+int altname_get_theoretical_size(const gchar *altname_orig) {
+  int size = 0;
+  gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
+  for (gchar **p = list; *p; p++) {
+    g_strstrip(*p); if (!strlen(*p)) continue;
+    size++;
+  }
+  g_strfreev(list);
+  return size;
 }
 
 void on_generate_clicked() {
   const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")));
   gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "days")));
   gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
+
   const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "CN")));
+  if (!is_valid_domain(cn)) cn = "";
 
   const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
-  GArray *altname = g_array_new(TRUE, FALSE, sizeof(gchar*));
-  gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
-  for (gchar **p = list; *p; p++) {
-    g_strstrip(*p); if (!strlen(*p)) continue;
+  int altname_size = altname_get_theoretical_size(altname_orig);
+  gchar *altname[altname_size+1]; // ["DNS:example.com", "IP:127.0.0.1", NULL]
 
-    int len = strlen(*p)+10;
-    gchar *val = g_malloc(len);
-    snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
-    g_array_append_val(altname, val);
-  }
-  g_strfreev(list);
+  if (is_valid_altname(altname_orig)) {
+      int idx = 0;
+      gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
+      for (gchar **p = list; *p; p++) {
+        g_strstrip(*p); if (!strlen(*p)) continue;
+
+        int len = strlen(*p)+10;
+        gchar *val = g_malloc(len);
+        snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
+        altname[idx++] = val;
+      }
+      altname[altname_size] = NULL;
+      g_strfreev(list);
+    } else {
+      altname[0] = NULL;
+    }
 
   gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
 
@@ -133,12 +156,7 @@ void on_generate_clicked() {
 
   // cleanup
   g_free(key_size);
-  // free altname
-  for (int idx=0; g_array_index(altname, gchar*, idx) != NULL; idx++) {
-    gchar *val = g_array_index(altname, gchar*, idx);
-    g_free(val);
-  }
-  g_array_free(altname, TRUE);
+  for (gchar **p = altname; *p; p++) g_free(*p);
 }
 
 
