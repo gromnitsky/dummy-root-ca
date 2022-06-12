@@ -102,6 +102,7 @@ void on_gen_close_clicked(GtkButton *w) {
 typedef struct GenOpt {
   const gchar *out;
   gint days;
+  gchar *key_size;
   const gchar *cn;
   gchar *altname;
   gboolean overwrite_all;
@@ -109,7 +110,8 @@ typedef struct GenOpt {
 
 gchar* exe_dir() {
   char exe_path[PATH_MAX];
-  readlink("/proc/self/exe", exe_path, PATH_MAX);
+  ssize_t nbytes = readlink("/proc/self/exe", exe_path, PATH_MAX);
+  exe_path[nbytes] = '\0';
   return g_path_get_dirname(exe_path);
 }
 
@@ -117,8 +119,7 @@ int run_make(gchar *target, GenOpt *opt) {
   char cmd[BUFSIZ];
   char *dir = exe_dir();
 
-  snprintf(cmd, sizeof cmd, "%s/dummy-root-ca.mk %s out=%s d=%d tls.altname=%s",
-           dir, target, opt->out, opt->days, opt->altname);
+  snprintf(cmd, sizeof cmd, "%s/dummy-root-ca.mk %s out=%s d=%d key_size=%s tls.altname=%s", dir, target, opt->out, opt->days, opt->key_size, opt->altname);
   g_free(dir);
 
   return system(cmd);
@@ -190,6 +191,7 @@ void generate(const gchar *out, gint days, gchar *key_size,
   if (strlen(cn)) {
     GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
     opt->out = out;
+    opt->key_size = key_size;
     opt->days = days;
     opt->cn = cn;
     opt->altname = strdup(an);
