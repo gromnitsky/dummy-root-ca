@@ -1,3 +1,4 @@
+#define G_LOG_DOMAIN "dummy-root-ca"
 #include <gtk/gtk.h>
 
 GtkBuilder *builder;
@@ -10,7 +11,7 @@ void on_files_selection_changed(GtkTreeSelection *w) {
   if (!gtk_tree_selection_get_selected(w, &model, &iter)) return;
 
   gtk_tree_model_get(model, &iter, 2, &val, -1);
-  fprintf(stderr, "TODO: display the parsed cert %s\n", val);
+  g_message("TODO: display the parsed cert %s", val);
   g_free(val);
   //gtk_tree_model_unref_node(model, &iter);
   gtk_tree_selection_unselect_all(w);
@@ -127,20 +128,30 @@ gboolean sensitivity_toggle(gpointer _unused) {
   return FALSE;
 }
 
+void generator_cleanup(void *arg) {
+  g_debug("generator_cleanup()");
+  GenOpt *opt = (GenOpt*)arg;
+  g_free(opt->key_size);
+  g_free(opt->altname);
+  g_free(opt);
+
+  g_idle_add(sensitivity_toggle, NULL);
+}
+
 void* generator(void *arg) {    /* thread function */
   GenOpt *opt = (GenOpt*)arg;
+  pthread_cleanup_push(generator_cleanup, opt);
+
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
   GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
   char target[BUFSIZ];
-  void *r = (void*)1;
 
   g_idle_add(sensitivity_toggle, NULL);
 
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
   if (0 != run_make("root.pem", opt)) {
     gtk_entry_buffer_set_text(log, "Error: making root private key failed", -1);
-    r = (void*)0;
-    goto generator_cleanup;
+    pthread_exit((void*)0);
   }
   gtk_progress_bar_set_fraction(progress, 0.25);
 
@@ -148,16 +159,14 @@ void* generator(void *arg) {    /* thread function */
   snprintf(target, sizeof target, "%s.pem", opt->cn);
   if (0 != run_make(target, opt)) {
     gtk_entry_buffer_set_text(log, "Error: making server private key failed", -1);
-    r = (void*)0;
-    goto generator_cleanup;
+    pthread_exit((void*)0);
   }
   gtk_progress_bar_set_fraction(progress, 0.50);
 
   gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
   if (0 != run_make("root.crt", opt)) {
     gtk_entry_buffer_set_text(log, "Error: making root certificate failed", -1);
-    r = (void*)0;
-    goto generator_cleanup;
+    pthread_exit((void*)0);
   }
   gtk_progress_bar_set_fraction(progress, 0.75);
 
@@ -166,46 +175,35 @@ void* generator(void *arg) {    /* thread function */
   if (!opt->overwrite_all) unlink(target); // FIXME
   if (0 != run_make(target, opt)) {
     gtk_entry_buffer_set_text(log, "Error: making server certificate failed", -1);
-    r = (void*)0;
-    goto generator_cleanup;
+    pthread_exit((void*)0);
   }
   gtk_progress_bar_set_fraction(progress, 0);
 
   gtk_entry_buffer_set_text(log, "Done.", -1);
-
- generator_cleanup:
-  g_free(opt->key_size);
-  g_free(opt->altname);
-  g_free(opt);
-
-  g_idle_add(sensitivity_toggle, NULL);
-  return r;
+  pthread_cleanup_pop(1);
+  return (void*)1;
 }
 
 void generate(const gchar *out, gint days, gchar *key_size,
                     const gchar *cn, gchar *altname, gboolean overwrite_all) {
-  fprintf(stderr, "out: %s\n", out);
-  fprintf(stderr, "days: %d\n", days);
-  fprintf(stderr, "key size: %s\n", key_size);
-  fprintf(stderr, "CN: %s\n", cn);
-  fprintf(stderr, "subjectAltName: `%s` [%ld]\n", altname, strlen(altname));
-  fprintf(stderr, "overwrite all: %d\n", overwrite_all);
+  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%ld], overwrite all: %d", out, days, key_size, cn, altname, strlen(altname), overwrite_all);
 
-  GtkEntryBuffer *l = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
-  if (strlen(cn)) {
-    GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
-    opt->out = out;
-    opt->key_size = strdup(key_size);
-    opt->days = days;
-    opt->cn = cn;
-    opt->altname = strdup(altname);
-    opt->overwrite_all = overwrite_all;
-
-    pthread_t tid;
-    pthread_create(&tid, NULL, generator, opt);
-  } else {
-    gtk_entry_buffer_set_text(l, "Error: CommonName is empty or invalid", -1);
+  if (!strlen(cn)) {
+    GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+    gtk_entry_buffer_set_text(log, "Error: CommonName is empty or invalid", -1);
+    return;
   }
+
+  GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
+  opt->out = out;
+  opt->key_size = strdup(key_size);
+  opt->days = days;
+  opt->cn = cn;
+  opt->altname = strdup(altname);
+  opt->overwrite_all = overwrite_all;
+
+  pthread_t tid;
+  pthread_create(&tid, NULL, generator, opt);
 }
 
 int altname_get_theoretical_size(const gchar *altname_orig) {
@@ -260,7 +258,6 @@ void on_generate_clicked() {
   for (gchar **p = altname; *p; p++) g_free(*p);
 }
 
-
 int main(int argc, char **argv) {
   char *dir = exe_dir();
   char path[BUFSIZ];
@@ -293,6 +290,8 @@ int main(int argc, char **argv) {
   if (!gtk_css_provider_load_from_path(cssProvider, path, &error))
     g_error("%s", error->message);
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
+
+  g_free(dir);
 
   gtk_widget_show(toplevel);
   gtk_main();
