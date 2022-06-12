@@ -93,12 +93,6 @@ void on_subjectAltName_changed(GtkEntry *w) {
   }
 }
 
-void on_gen_close_clicked(GtkButton *w) {
-  fprintf(stderr, "on_gen_close_clicked\n");
-  GtkWidget *gen = GTK_WIDGET(gtk_builder_get_object(builder, "gen"));
-  gtk_widget_hide(gen);
-}
-
 typedef struct GenOpt {
   const gchar *out;
   gint days;
