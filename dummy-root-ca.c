@@ -99,6 +99,81 @@ void on_gen_close_clicked(GtkButton *w) {
   gtk_widget_hide(gen);
 }
 
+typedef struct GenOpt {
+  const gchar *out;
+  gint days;
+  const gchar *cn;
+  gchar *altname;
+  gboolean overwrite_all;
+} GenOpt;
+
+gchar* exe_dir() {
+  char exe_path[PATH_MAX];
+  readlink("/proc/self/exe", exe_path, PATH_MAX);
+  return g_path_get_dirname(exe_path);
+}
+
+int run_make(gchar *target, GenOpt *opt) {
+  char cmd[BUFSIZ];
+  char *dir = exe_dir();
+
+  snprintf(cmd, sizeof cmd, "%s/dummy-root-ca.mk %s out=%s d=%d tls.altname=%s",
+           dir, target, opt->out, opt->days, opt->altname);
+  g_free(dir);
+
+  return system(cmd);
+}
+
+void* generator(void *arg) {    /* thread function */
+  GenOpt *opt = (GenOpt*)arg;
+  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
+  char target[BUFSIZ];
+  void *r = (void*)1;
+
+  gtk_entry_buffer_set_text(log, "① Root private key...", -1);
+  if (0 != run_make("root.pem", opt)) {
+    gtk_entry_buffer_set_text(log, "Error: making root private key failed", -1);
+    r = (void*)0;
+    goto generator_cleanup;
+  }
+  gtk_progress_bar_set_fraction(progress, 0.25);
+
+  gtk_entry_buffer_set_text(log, "② Server private key...", -1);
+  snprintf(target, sizeof target, "%s.pem", opt->cn);
+  if (0 != run_make(target, opt)) {
+    gtk_entry_buffer_set_text(log, "Error: making server private key failed", -1);
+    r = (void*)0;
+    goto generator_cleanup;
+  }
+  gtk_progress_bar_set_fraction(progress, 0.50);
+
+  gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
+  if (0 != run_make("root.crt", opt)) {
+    gtk_entry_buffer_set_text(log, "Error: making root certificate failed", -1);
+    r = (void*)0;
+    goto generator_cleanup;
+  }
+  gtk_progress_bar_set_fraction(progress, 0.75);
+
+  gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
+  snprintf(target, sizeof target, "%s.crt", opt->cn);
+  if (0 != run_make(target, opt)) {
+    gtk_entry_buffer_set_text(log, "Error: making server certificate failed", -1);
+    r = (void*)0;
+    goto generator_cleanup;
+  }
+  gtk_progress_bar_set_fraction(progress, 0);
+
+  gtk_entry_buffer_set_text(log, "Done.", -1);
+
+ generator_cleanup:
+  g_free(opt->altname);
+  g_free(opt);
+
+  return r;
+}
+
 void generate(const gchar *out, gint days, gchar *key_size,
                     const gchar *cn, gchar **altname, gboolean overwrite_all) {
   fprintf(stderr, "out: %s\n", out);
@@ -113,33 +188,19 @@ void generate(const gchar *out, gint days, gchar *key_size,
 
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
   if (strlen(cn)) {
-    GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
-    char cmd[BUFSIZ];
+    GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
+    opt->out = out;
+    opt->days = days;
+    opt->cn = cn;
+    opt->altname = strdup(an);
+    opt->overwrite_all = overwrite_all;
 
-    gtk_entry_buffer_set_text(log, "① Root private key...", -1);
-    system("./dummy-root-ca.mk root.pem");
-    gtk_progress_bar_set_fraction(progress, 0.25);
-
-    gtk_entry_buffer_set_text(log, "② Server private key...", -1);
-    snprintf(cmd, sizeof cmd, "./dummy-root-ca.mk %s.pem", cn);
-    system(cmd);
-    gtk_progress_bar_set_fraction(progress, 0.50);
-
-    gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
-    system("./dummy-root-ca.mk root.crt");
-    gtk_progress_bar_set_fraction(progress, 0.75);
-
-    gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
-    snprintf(cmd, sizeof cmd, "./dummy-root-ca.mk %s.crt", cn);
-    system(cmd);
-    gtk_progress_bar_set_fraction(progress, 1);
-
-    gtk_entry_buffer_set_text(log, "Done.", -1);
+    pthread_t tid;
+    pthread_create(&tid, NULL, generator, opt);
   } else {
-    gtk_entry_buffer_set_text(log, "Error: CommonName is empty", -1);
+    gtk_entry_buffer_set_text(log, "Error: CommonName is empty or invalid", -1);
   }
 
-  // cleanup
   g_free(an);
 }
 
