@@ -114,10 +114,17 @@ int run_make(gchar *target, GenOpt *opt) {
   char *dir = exe_dir();
 
   if (opt->overwrite_all) unlink(target);
+  g_mkdir_with_parents(opt->out, 0775);
   snprintf(cmd, sizeof cmd, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
   g_free(dir);
 
   return system(cmd);
+}
+
+gboolean sensitivity_toggle(gpointer _unused) {
+  GtkWidget *w = GTK_WIDGET(gtk_builder_get_object(builder, "generate"));
+  gtk_widget_set_sensitive(w, !gtk_widget_get_sensitive(w));
+  return FALSE;
 }
 
 void* generator(void *arg) {    /* thread function */
@@ -126,6 +133,8 @@ void* generator(void *arg) {    /* thread function */
   GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
   char target[BUFSIZ];
   void *r = (void*)1;
+
+  g_idle_add(sensitivity_toggle, NULL);
 
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
   if (0 != run_make("root.pem", opt)) {
@@ -169,6 +178,7 @@ void* generator(void *arg) {    /* thread function */
   g_free(opt->altname);
   g_free(opt);
 
+  g_idle_add(sensitivity_toggle, NULL);
   return r;
 }
 
@@ -241,7 +251,7 @@ void on_generate_clicked() {
 
   gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
 
-
+  // starts a new thread
   generate(out, days, key_size, cn, an, overwrite_all);
 
   // cleanup
@@ -252,35 +262,39 @@ void on_generate_clicked() {
 
 
 int main(int argc, char **argv) {
-    gtk_init(&argc, &argv);
+  char *dir = exe_dir();
+  char path[BUFSIZ];
+  GError *error = NULL;
 
-    builder = gtk_builder_new();
-    GError *error = NULL;
-    if (!gtk_builder_add_from_file(builder, "gui.xml", &error)) {
-      GtkWidget *dialog = gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", error->message);
-      gtk_dialog_run(GTK_DIALOG(dialog));
-      gtk_widget_destroy(dialog);
-      exit(1);
-    }
+  if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
+    g_error("%s", error->message);
 
-    GtkWidget *window = GTK_WIDGET(gtk_builder_get_object(builder, "toplevel"));
-    g_signal_connect(window, "destroy", quit, NULL);
-    gtk_builder_connect_signals(builder, NULL);
+  builder = gtk_builder_new();
+  snprintf(path, sizeof path, "%s/gui.xml", dir);
+  if (!gtk_builder_add_from_file(builder, path, &error))
+    g_error("%s", error->message);
 
-    char out[PATH_MAX];
-    getcwd(out, sizeof out);
-    gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")), out);
+  GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(builder, "toplevel"));
+  g_signal_connect(toplevel, "destroy", quit, NULL);
+  gtk_builder_connect_signals(builder, NULL);
 
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite2")), TRUE);
+  // set 'out' directory
+  char out[PATH_MAX];
+  argc > 1 ? strcpy(out, argv[1]) : getcwd(out, sizeof out);
+  gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")), out);
 
-    gtk_widget_grab_focus(GTK_WIDGET(gtk_builder_get_object(builder, "generate")));
+  // toggle buttons & focus
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite2")), TRUE);
+  gtk_widget_grab_focus(GTK_WIDGET(gtk_builder_get_object(builder, "generate")));
 
-    // load CSS
-    GtkCssProvider *cssProvider = gtk_css_provider_new();
-    gtk_css_provider_load_from_path(cssProvider, "style.css", NULL);
-    gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
+  // load CSS
+  GtkCssProvider *cssProvider = gtk_css_provider_new();
+  snprintf(path, sizeof path, "%s/style.css", dir);
+  if (!gtk_css_provider_load_from_path(cssProvider, path, &error))
+    g_error("%s", error->message);
+  gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
 
-    gtk_widget_show(window);
-    gtk_main();
-    return 0;
+  gtk_widget_show(toplevel);
+  gtk_main();
+  return 0;
 }
