@@ -2,8 +2,13 @@
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
-GtkBuilder *builder;
-pthread_t generator_tid;
+typedef struct GUI {
+  GtkBuilder *bld;
+  pthread_t generator_tid;      /* starts after 'Generate' button ckick */
+  gboolean generator_active;
+} GUI;
+
+GUI gui;
 
 void on_files_selection_changed(GtkTreeSelection *w) {
   GtkTreeModel *model;
@@ -20,16 +25,16 @@ void on_files_selection_changed(GtkTreeSelection *w) {
 }
 
 void quit() {
-  g_object_unref(G_OBJECT(builder)); // make valgrind happy
+  g_object_unref(G_OBJECT(gui.bld)); // make valgrind happy
   gtk_main_quit();
 }
 
 void on_out_button_clicked() {
-  GtkWindow *parent = GTK_WINDOW(gtk_builder_get_object(builder, "toplevel"));
+  GtkWindow *parent = GTK_WINDOW(gtk_builder_get_object(gui.bld, "toplevel"));
   GtkWidget *w = gtk_file_chooser_dialog_new(NULL, parent, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Choose", GTK_RESPONSE_ACCEPT, NULL);
   if (gtk_dialog_run(GTK_DIALOG(w)) == GTK_RESPONSE_ACCEPT) {
     char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
-    gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")), dir);
+    gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), dir);
     g_free(dir);
   }
 
@@ -57,8 +62,8 @@ void on_CN_changed(GtkEntry *w) {
   }
 
   // insert CN into 'files' table
-  GtkTreeView *tv = GTK_TREE_VIEW(gtk_builder_get_object(builder, "files"));
-  GtkListStore *ls = GTK_LIST_STORE(gtk_builder_get_object(builder, "files_ls"));
+  GtkTreeView *tv = GTK_TREE_VIEW(gtk_builder_get_object(gui.bld, "files"));
+  GtkListStore *ls = GTK_LIST_STORE(gtk_builder_get_object(gui.bld, "files_ls"));
   GtkTreeModel *model = gtk_tree_view_get_model(tv);
   GtkTreeIter i;
   char fname[BUFSIZ];
@@ -127,7 +132,7 @@ int run_make(gchar *target, GenOpt *opt) {
 }
 
 gboolean idle_generate_button_toggle(gpointer _unused) {
-  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(builder, "generate"));
+  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(gui.bld, "generate"));
   if (0 == strcmp(gtk_button_get_label(w), "Generate"))
     gtk_button_set_label(w, "Abort");
   else
@@ -137,7 +142,7 @@ gboolean idle_generate_button_toggle(gpointer _unused) {
 
 gboolean idle_progress_set(gpointer arg) {
   gdouble *fraction = (gdouble*)arg;
-  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
+  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(gui.bld, "progress"));
   gtk_progress_bar_set_fraction(progress, *fraction);
   g_free(arg);
   return FALSE;
@@ -157,16 +162,16 @@ void generator_cleanup(void *arg) {
   g_free(opt);
 
   g_idle_add(idle_generate_button_toggle, NULL);
-  // mark thread as finished
-  generator_tid = 0;            /* FIXME: not portable */
+  gui.generator_active = FALSE; /* mark thread as finished */
 }
 
 void* generator(void *arg) {    /* thread function */
   GenOpt *opt = (GenOpt*)arg;
+  gui.generator_active = TRUE;
   pthread_cleanup_push(generator_cleanup, opt);
   g_idle_add(idle_generate_button_toggle, NULL);
 
-  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
   char target[PATH_MAX];
 
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
@@ -214,7 +219,7 @@ void generate(const gchar *out, gint days, gchar *key_size,
   g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%ld], overwrite all: %d", out, days, key_size, cn, altname, strlen(altname), overwrite_all);
 
   if (!strlen(cn)) {
-    GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+    GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
     gtk_entry_buffer_set_text(log, "Error: CommonName is empty or invalid", -1);
     return;
   }
@@ -227,7 +232,7 @@ void generate(const gchar *out, gint days, gchar *key_size,
   opt->altname = strdup(altname);
   opt->overwrite_all = overwrite_all;
 
-  pthread_create(&generator_tid, NULL, generator, opt);
+  pthread_create(&gui.generator_tid, NULL, generator, opt);
 }
 
 int altname_get_theoretical_size(const gchar *altname_orig) {
@@ -242,19 +247,19 @@ int altname_get_theoretical_size(const gchar *altname_orig) {
 }
 
 void on_generate_clicked() {
-  if (generator_tid && 0 == pthread_cancel(generator_tid)) {
+  if (gui.generator_active && 0 == pthread_cancel(gui.generator_tid)) {
     g_debug("cancel thread");
     return;
   }
 
-  const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")));
-  gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "days")));
-  gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
+  const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")));
+  gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(gui.bld, "days")));
+  gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(gui.bld, "key_size")));
 
-  const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "CN")));
+  const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "CN")));
   if (!is_valid_domain(cn)) cn = "";
 
-  const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "subjectAltName")));
+  const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "subjectAltName")));
   int altname_size = altname_get_theoretical_size(altname_orig);
   gchar *altname[altname_size+1]; // ["DNS:example.com", "IP:127.0.0.1", NULL]
 
@@ -276,7 +281,7 @@ void on_generate_clicked() {
   }
   gchar *an = g_strjoinv(",", altname);
 
-  gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
+  gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite1")));
 
   // starts a new thread
   generate(out, days, key_size, cn, an, overwrite_all);
@@ -295,23 +300,23 @@ int main(int argc, char **argv) {
   if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
     g_error("%s", error->message);
 
-  builder = gtk_builder_new();
+  gui.bld = gtk_builder_new();
   snprintf(path, sizeof path, "%s/gui.xml", dir);
-  if (!gtk_builder_add_from_file(builder, path, &error))
+  if (!gtk_builder_add_from_file(gui.bld, path, &error))
     g_error("%s", error->message);
 
-  GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(builder, "toplevel"));
+  GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(gui.bld, "toplevel"));
   g_signal_connect(toplevel, "destroy", quit, NULL);
-  gtk_builder_connect_signals(builder, NULL);
+  gtk_builder_connect_signals(gui.bld, NULL);
 
   // set 'out' directory
   char out[PATH_MAX];
   argc > 1 ? strcpy(out, argv[1]) : getcwd(out, sizeof out);
-  gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")), out);
+  gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), out);
 
   // toggle buttons & focus
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite2")), TRUE);
-  gtk_widget_grab_focus(GTK_WIDGET(gtk_builder_get_object(builder, "generate")));
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite2")), TRUE);
+  gtk_widget_grab_focus(GTK_WIDGET(gtk_builder_get_object(gui.bld, "generate")));
 
   // load CSS
   GtkCssProvider *cssProvider = gtk_css_provider_new();
