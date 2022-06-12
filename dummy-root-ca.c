@@ -179,34 +179,29 @@ void* generator(void *arg) {    /* thread function */
 }
 
 void generate(const gchar *out, gint days, gchar *key_size,
-                    const gchar *cn, gchar **altname, gboolean overwrite_all) {
+                    const gchar *cn, gchar *altname, gboolean overwrite_all) {
   fprintf(stderr, "out: %s\n", out);
   fprintf(stderr, "days: %d\n", days);
   fprintf(stderr, "key size: %s\n", key_size);
   fprintf(stderr, "CN: %s\n", cn);
-
-  gchar *an = g_strjoinv(",", altname);
-  fprintf(stderr, "subjectAltName: `%s` [%ld]\n", an, strlen(an));
-
+  fprintf(stderr, "subjectAltName: `%s` [%ld]\n", altname, strlen(altname));
   fprintf(stderr, "overwrite all: %d\n", overwrite_all);
 
-  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
+  GtkEntryBuffer *l = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
   if (strlen(cn)) {
     GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
     opt->out = out;
-    opt->key_size = key_size;
+    opt->key_size = strdup(key_size);
     opt->days = days;
     opt->cn = cn;
-    opt->altname = strdup(an);
+    opt->altname = strdup(altname);
     opt->overwrite_all = overwrite_all;
 
     pthread_t tid;
     pthread_create(&tid, NULL, generator, opt);
   } else {
-    gtk_entry_buffer_set_text(log, "Error: CommonName is empty or invalid", -1);
+    gtk_entry_buffer_set_text(l, "Error: CommonName is empty or invalid", -1);
   }
-
-  g_free(an);
 }
 
 int altname_get_theoretical_size(const gchar *altname_orig) {
@@ -233,29 +228,31 @@ void on_generate_clicked() {
   gchar *altname[altname_size+1]; // ["DNS:example.com", "IP:127.0.0.1", NULL]
 
   if (is_valid_altname(altname_orig)) {
-      int idx = 0;
-      gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
-      for (gchar **p = list; *p; p++) {
-        g_strstrip(*p); if (!strlen(*p)) continue;
+    int idx = 0;
+    gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
+    for (gchar **p = list; *p; p++) {
+      g_strstrip(*p); if (!strlen(*p)) continue;
 
-        int len = strlen(*p)+10;
-        gchar *val = g_malloc(len);
-        snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
-        altname[idx++] = val;
-      }
-      altname[altname_size] = NULL;
-      g_strfreev(list);
-    } else {
-      altname[0] = NULL;
+      int len = strlen(*p)+10;
+      gchar *val = g_malloc(len);
+      snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
+      altname[idx++] = val;
     }
+    altname[altname_size] = NULL;
+    g_strfreev(list);
+  } else {
+    altname[0] = NULL;
+  }
+  gchar *an = g_strjoinv(",", altname);
 
   gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(builder, "overwrite1")));
 
 
-  generate(out, days, key_size, cn, altname, overwrite_all);
+  generate(out, days, key_size, cn, an, overwrite_all);
 
   // cleanup
   g_free(key_size);
+  g_free(an);
   for (gchar **p = altname; *p; p++) g_free(*p);
 }
 
