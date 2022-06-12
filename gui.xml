@@ -423,11 +423,12 @@
         </child>
         <child>
           <object class="GtkEntry">
+            <property name="name">log</property>
             <property name="visible">True</property>
-            <property name="sensitive">False</property>
-            <property name="can-focus">True</property>
+            <property name="can-focus">False</property>
             <property name="margin-top">10</property>
             <property name="buffer">log</property>
+            <property name="editable">False</property>
           </object>
           <packing>
             <property name="expand">False</property>
@@ -467,11 +468,13 @@
               </packing>
             </child>
             <child>
-              <object class="GtkButton" id="help">
+              <object class="GtkLinkButton">
                 <property name="label" translatable="yes">Help</property>
                 <property name="visible">True</property>
                 <property name="can-focus">True</property>
                 <property name="receives-default">True</property>
+                <property name="relief">none</property>
+                <property name="uri">https://github.com/gromnitsky/dummy-root-ca</property>
               </object>
               <packing>
                 <property name="expand">False</property>
