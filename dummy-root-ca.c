@@ -1,7 +1,9 @@
 #define G_LOG_DOMAIN "dummy-root-ca"
+#include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
 GtkBuilder *builder;
+pthread_t generator_tid;
 
 void on_files_selection_changed(GtkTreeSelection *w) {
   GtkTreeModel *model;
@@ -111,21 +113,40 @@ gchar* exe_dir() {
 }
 
 int run_make(gchar *target, GenOpt *opt) {
-  char cmd[BUFSIZ];
+  char buf[BUFSIZ];
   char *dir = exe_dir();
 
-  if (opt->overwrite_all) unlink(target);
+  snprintf(buf, sizeof buf, "%s/%s", opt->out, target);
+  if (opt->overwrite_all) g_unlink(buf);
+
   g_mkdir_with_parents(opt->out, 0775);
-  snprintf(cmd, sizeof cmd, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
+  snprintf(buf, sizeof buf, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
   g_free(dir);
 
-  return system(cmd);
+  return system(buf);
 }
 
-gboolean sensitivity_toggle(gpointer _unused) {
-  GtkWidget *w = GTK_WIDGET(gtk_builder_get_object(builder, "generate"));
-  gtk_widget_set_sensitive(w, !gtk_widget_get_sensitive(w));
+gboolean idle_generate_button_toggle(gpointer _unused) {
+  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(builder, "generate"));
+  if (0 == strcmp(gtk_button_get_label(w), "Generate"))
+    gtk_button_set_label(w, "Abort");
+  else
+    gtk_button_set_label(w, "Generate");
   return FALSE;
+}
+
+gboolean idle_progress_set(gpointer arg) {
+  gdouble *fraction = (gdouble*)arg;
+  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
+  gtk_progress_bar_set_fraction(progress, *fraction);
+  g_free(arg);
+  return FALSE;
+}
+
+void schedule_progress_update(gdouble fraction) {
+  gdouble *param = (gdouble*)g_malloc(1*sizeof(gdouble));
+  *param = fraction;
+  g_idle_add(idle_progress_set, param);
 }
 
 void generator_cleanup(void *arg) {
@@ -135,25 +156,25 @@ void generator_cleanup(void *arg) {
   g_free(opt->altname);
   g_free(opt);
 
-  g_idle_add(sensitivity_toggle, NULL);
+  g_idle_add(idle_generate_button_toggle, NULL);
+  // mark thread as finished
+  generator_tid = 0;            /* FIXME: not portable */
 }
 
 void* generator(void *arg) {    /* thread function */
   GenOpt *opt = (GenOpt*)arg;
   pthread_cleanup_push(generator_cleanup, opt);
+  g_idle_add(idle_generate_button_toggle, NULL);
 
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(builder, "log"));
-  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(builder, "progress"));
-  char target[BUFSIZ];
-
-  g_idle_add(sensitivity_toggle, NULL);
+  char target[PATH_MAX];
 
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
   if (0 != run_make("root.pem", opt)) {
     gtk_entry_buffer_set_text(log, "Error: making root private key failed", -1);
     pthread_exit((void*)0);
   }
-  gtk_progress_bar_set_fraction(progress, 0.25);
+  schedule_progress_update(0.25);
 
   gtk_entry_buffer_set_text(log, "② Server private key...", -1);
   snprintf(target, sizeof target, "%s.pem", opt->cn);
@@ -161,23 +182,27 @@ void* generator(void *arg) {    /* thread function */
     gtk_entry_buffer_set_text(log, "Error: making server private key failed", -1);
     pthread_exit((void*)0);
   }
-  gtk_progress_bar_set_fraction(progress, 0.50);
+  schedule_progress_update(0.5);
 
   gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
   if (0 != run_make("root.crt", opt)) {
     gtk_entry_buffer_set_text(log, "Error: making root certificate failed", -1);
     pthread_exit((void*)0);
   }
-  gtk_progress_bar_set_fraction(progress, 0.75);
+  schedule_progress_update(0.75);
 
   gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
   snprintf(target, sizeof target, "%s.crt", opt->cn);
-  if (!opt->overwrite_all) unlink(target); // FIXME
+  if (!opt->overwrite_all) {
+    char old[BUFSIZ];
+    snprintf(old, sizeof old, "%s/%s", opt->out, target);
+    g_unlink(old);
+  }
   if (0 != run_make(target, opt)) {
     gtk_entry_buffer_set_text(log, "Error: making server certificate failed", -1);
     pthread_exit((void*)0);
   }
-  gtk_progress_bar_set_fraction(progress, 0);
+  schedule_progress_update(0);
 
   gtk_entry_buffer_set_text(log, "Done.", -1);
   pthread_cleanup_pop(1);
@@ -202,8 +227,7 @@ void generate(const gchar *out, gint days, gchar *key_size,
   opt->altname = strdup(altname);
   opt->overwrite_all = overwrite_all;
 
-  pthread_t tid;
-  pthread_create(&tid, NULL, generator, opt);
+  pthread_create(&generator_tid, NULL, generator, opt);
 }
 
 int altname_get_theoretical_size(const gchar *altname_orig) {
@@ -218,6 +242,11 @@ int altname_get_theoretical_size(const gchar *altname_orig) {
 }
 
 void on_generate_clicked() {
+  if (generator_tid && 0 == pthread_cancel(generator_tid)) {
+    g_debug("cancel thread");
+    return;
+  }
+
   const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(builder, "out")));
   gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "days")));
   gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "key_size")));
