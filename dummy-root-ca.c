@@ -117,7 +117,7 @@ gchar* exe_dir() {
   return g_path_get_dirname(exe_path);
 }
 
-int run_make(gchar *target, GenOpt *opt) {
+GError* run_make(gchar *target, GenOpt *opt) {
   char buf[BUFSIZ];
   char *dir = exe_dir();
 
@@ -128,7 +128,13 @@ int run_make(gchar *target, GenOpt *opt) {
   snprintf(buf, sizeof buf, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
   g_free(dir);
 
-  return system(buf);
+  gint wait_status;
+  GError *err = NULL;
+  if (!g_spawn_command_line_sync(buf, NULL, NULL, &wait_status, &err))
+    return err;
+  if (!g_spawn_check_wait_status(wait_status, &err)) return err;
+
+  return NULL;
 }
 
 gboolean idle_generate_button_toggle(gpointer _unused) {
@@ -165,6 +171,13 @@ void generator_cleanup(void *arg) {
   gui.generator_active = FALSE; /* mark thread as finished */
 }
 
+void generator_log(GtkEntryBuffer *sink, gchar *msg, GError **err) {
+  char buf[BUFSIZ];
+  snprintf(buf, sizeof buf, "Error: %s: %s", msg, (*err)->message);
+  gtk_entry_buffer_set_text(sink, buf, -1);
+  g_error_free(*err);
+}
+
 void* generator(void *arg) {    /* thread function */
   GenOpt *opt = (GenOpt*)arg;
   gui.generator_active = TRUE;
@@ -173,25 +186,26 @@ void* generator(void *arg) {    /* thread function */
 
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
   char target[PATH_MAX];
+  GError *err;
 
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
-  if (0 != run_make("root.pem", opt)) {
-    gtk_entry_buffer_set_text(log, "Error: making root private key failed", -1);
+  if ( (err = run_make("root.pem", opt))) {
+    generator_log(log, "making root private key failed", &err);
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.25);
 
   gtk_entry_buffer_set_text(log, "② Server private key...", -1);
   snprintf(target, sizeof target, "%s.pem", opt->cn);
-  if (0 != run_make(target, opt)) {
-    gtk_entry_buffer_set_text(log, "Error: making server private key failed", -1);
+  if ( (err = run_make(target, opt))) {
+    generator_log(log, "making server private key failed", &err);
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.5);
 
   gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
-  if (0 != run_make("root.crt", opt)) {
-    gtk_entry_buffer_set_text(log, "Error: making root certificate failed", -1);
+  if ( (err = run_make("root.crt", opt))) {
+    generator_log(log, "making root certificate failed", &err);
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.75);
@@ -203,8 +217,8 @@ void* generator(void *arg) {    /* thread function */
     snprintf(old, sizeof old, "%s/%s", opt->out, target);
     g_unlink(old);
   }
-  if (0 != run_make(target, opt)) {
-    gtk_entry_buffer_set_text(log, "Error: making server certificate failed", -1);
+  if ( (err = run_make(target, opt))) {
+    generator_log(log, "making server certificate failed", &err);
     pthread_exit((void*)0);
   }
   schedule_progress_update(0);
