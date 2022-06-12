@@ -119,7 +119,8 @@ int run_make(gchar *target, GenOpt *opt) {
   char cmd[BUFSIZ];
   char *dir = exe_dir();
 
-  snprintf(cmd, sizeof cmd, "%s/dummy-root-ca.mk %s out=%s d=%d key_size=%s tls.altname=%s", dir, target, opt->out, opt->days, opt->key_size, opt->altname);
+  if (opt->overwrite_all) unlink(target);
+  snprintf(cmd, sizeof cmd, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
   g_free(dir);
 
   return system(cmd);
@@ -159,6 +160,7 @@ void* generator(void *arg) {    /* thread function */
 
   gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
   snprintf(target, sizeof target, "%s.crt", opt->cn);
+  if (!opt->overwrite_all) unlink(target); // FIXME
   if (0 != run_make(target, opt)) {
     gtk_entry_buffer_set_text(log, "Error: making server certificate failed", -1);
     r = (void*)0;
@@ -169,6 +171,7 @@ void* generator(void *arg) {    /* thread function */
   gtk_entry_buffer_set_text(log, "Done.", -1);
 
  generator_cleanup:
+  g_free(opt->key_size);
   g_free(opt->altname);
   g_free(opt);
 

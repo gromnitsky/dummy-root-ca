@@ -3,6 +3,7 @@
 root.ca := $(USER)\'s Dummy Root CA
 tls.altname :=
 d := 3650
+key_size := 4096
 
 all: $(shell hostname -f).crt
 
@@ -14,7 +15,7 @@ root.crt: root.pem
 	 -addext nsCertType=sslCA,emailCA,objCA
 
 .PRECIOUS: %.pem
-%.pem:; openssl genrsa 4096 > $@
+%.pem:; openssl genrsa $(key_size) > $@
 
 %.crt: %.pem root.crt
 	openssl req -x509 -key $< -CA root.crt -CAkey root.pem -out $@ \
