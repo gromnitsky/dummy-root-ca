@@ -8,6 +8,7 @@ typedef struct GUI {
   GtkBuilder *bld;
   pthread_t generator_tid;      /* starts after 'Generate' button ckick */
   gboolean generator_active;
+  gchar *exe_dir;
 } GUI;
 
 GUI gui;
@@ -28,6 +29,7 @@ void on_files_selection_changed(GtkTreeSelection *w) {
 
 void quit() {
   g_object_unref(G_OBJECT(gui.bld)); // make valgrind happy
+  g_free(gui.exe_dir);
   gtk_main_quit();
 }
 
@@ -112,20 +114,21 @@ typedef struct GenOpt {
   gboolean overwrite_all;
 } GenOpt;
 
-gchar* exe_dir() { // FIXME
-  return g_path_get_dirname(g_get_prgname());
+gchar* exe_dir() {
+  gchar *d = g_path_get_dirname(g_get_prgname());
+  gchar *r = g_canonicalize_filename(d, NULL);
+  g_free(d);
+  return r;
 }
 
 GError* run_make(gchar *target, GenOpt *opt) {
   char buf[BUFSIZ];
-  char *dir = exe_dir();
-
   snprintf(buf, sizeof buf, "%s/%s", opt->out, target);
   if (opt->overwrite_all) g_unlink(buf);
 
   g_mkdir_with_parents(opt->out, 0775);
-  snprintf(buf, sizeof buf, "make1 -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
-  g_free(dir);
+  snprintf(buf, sizeof buf, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", gui.exe_dir, opt->out, opt->days, opt->key_size, opt->altname, target);
+  g_debug("run_make: %s", buf);
 
   gint wait_status;
   GError *err = NULL;
@@ -180,7 +183,9 @@ void generator_log(GtkEntryBuffer *sink, gchar *msg, GError **err) {
 void* generator(void *arg) {    /* thread function */
   GenOpt *opt = (GenOpt*)arg;
   gui.generator_active = TRUE;
+#ifndef __MINGW64__
   pthread_cleanup_push(generator_cleanup, opt);
+#endif
   g_idle_add(idle_generate_button_toggle, NULL);
 
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
@@ -190,6 +195,9 @@ void* generator(void *arg) {    /* thread function */
   gtk_entry_buffer_set_text(log, "① Root private key...", -1);
   if ( (err = run_make("root.pem", opt))) {
     generator_log(log, "making root private key failed", &err);
+#ifdef __MINGW64__
+    generator_cleanup(opt);
+#endif
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.25);
@@ -198,6 +206,9 @@ void* generator(void *arg) {    /* thread function */
   snprintf(target, sizeof target, "%s.pem", opt->cn);
   if ( (err = run_make(target, opt))) {
     generator_log(log, "making server private key failed", &err);
+#ifdef __MINGW64__
+    generator_cleanup(opt);
+#endif
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.5);
@@ -205,6 +216,9 @@ void* generator(void *arg) {    /* thread function */
   gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
   if ( (err = run_make("root.crt", opt))) {
     generator_log(log, "making root certificate failed", &err);
+#ifdef __MINGW64__
+    generator_cleanup(opt);
+#endif
     pthread_exit((void*)0);
   }
   schedule_progress_update(0.75);
@@ -218,12 +232,19 @@ void* generator(void *arg) {    /* thread function */
   }
   if ( (err = run_make(target, opt))) {
     generator_log(log, "making server certificate failed", &err);
+#ifdef __MINGW64__
+    generator_cleanup(opt);
+#endif
     pthread_exit((void*)0);
   }
   schedule_progress_update(0);
 
   gtk_entry_buffer_set_text(log, "Done.", -1);
+#ifndef __MINGW64__
   pthread_cleanup_pop(1);
+#else
+  generator_cleanup(opt);
+#endif
   return (void*)1;
 }
 
@@ -311,11 +332,11 @@ int main(int argc, char **argv) {
     g_error("%s", error->message);
 
   char path[BUFSIZ];
-  char *dir = exe_dir();        // must run after gtk_init*()
-  g_debug("exe_dir = %s",dir);
+  gui.exe_dir = exe_dir();        // must run after gtk_init*()
+  g_debug("exe_dir = %s", gui.exe_dir);
 
   gui.bld = gtk_builder_new();
-  snprintf(path, sizeof path, "%s/gui.xml", dir);
+  snprintf(path, sizeof path, "%s/gui.xml", gui.exe_dir);
   if (!gtk_builder_add_from_file(gui.bld, path, &error))
     g_error("%s", error->message);
 
@@ -334,12 +355,10 @@ int main(int argc, char **argv) {
 
   // load CSS
   GtkCssProvider *cssProvider = gtk_css_provider_new();
-  snprintf(path, sizeof path, "%s/style.css", dir);
+  snprintf(path, sizeof path, "%s/style.css", gui.exe_dir);
   if (!gtk_css_provider_load_from_path(cssProvider, path, &error))
     g_error("%s", error->message);
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
-
-  g_free(dir);
 
   gtk_widget_show(toplevel);
   gtk_main();
