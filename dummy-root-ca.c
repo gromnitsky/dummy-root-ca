@@ -1,3 +1,5 @@
+#include <pthread.h>
+
 #define G_LOG_DOMAIN "dummy-root-ca"
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
@@ -73,7 +75,7 @@ void on_CN_changed(GtkEntry *w) {
   gtk_list_store_set(ls, &i, 1, fname, -1);
   snprintf(fname, sizeof fname, (strlen(cn) ? "%s.crt" : "%s-"), cn);
   gtk_list_store_set(ls, &i, 2, fname, -1);
-  free(cn);
+  g_free(cn);
 }
 
 gboolean is_valid_altname(const gchar *altname) { // empty altname is OK
@@ -110,11 +112,8 @@ typedef struct GenOpt {
   gboolean overwrite_all;
 } GenOpt;
 
-gchar* exe_dir() {
-  char exe_path[PATH_MAX];
-  ssize_t nbytes = readlink("/proc/self/exe", exe_path, PATH_MAX);
-  exe_path[nbytes] = '\0';
-  return g_path_get_dirname(exe_path);
+gchar* exe_dir() { // FIXME
+  return g_path_get_dirname(g_get_prgname());
 }
 
 GError* run_make(gchar *target, GenOpt *opt) {
@@ -125,7 +124,7 @@ GError* run_make(gchar *target, GenOpt *opt) {
   if (opt->overwrite_all) g_unlink(buf);
 
   g_mkdir_with_parents(opt->out, 0775);
-  snprintf(buf, sizeof buf, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
+  snprintf(buf, sizeof buf, "make1 -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", dir, opt->out, opt->days, opt->key_size, opt->altname, target);
   g_free(dir);
 
   gint wait_status;
@@ -230,7 +229,7 @@ void* generator(void *arg) {    /* thread function */
 
 void generate(const gchar *out, gint days, gchar *key_size,
                     const gchar *cn, gchar *altname, gboolean overwrite_all) {
-  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%ld], overwrite all: %d", out, days, key_size, cn, altname, strlen(altname), overwrite_all);
+  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", out, days, key_size, cn, altname, (int)strlen(altname), overwrite_all);
 
   if (!strlen(cn)) {
     GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
@@ -307,12 +306,13 @@ void on_generate_clicked() {
 }
 
 int main(int argc, char **argv) {
-  char *dir = exe_dir();
-  char path[BUFSIZ];
   GError *error = NULL;
-
   if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
     g_error("%s", error->message);
+
+  char path[BUFSIZ];
+  char *dir = exe_dir();        // must run after gtk_init*()
+  g_debug("exe_dir = %s",dir);
 
   gui.bld = gtk_builder_new();
   snprintf(path, sizeof path, "%s/gui.xml", dir);
