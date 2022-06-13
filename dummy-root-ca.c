@@ -1,3 +1,6 @@
+#ifdef __MINGW64__
+#include <windows.h>
+#endif
 #include <pthread.h>
 
 #define G_LOG_DOMAIN "dummy-root-ca"
@@ -115,10 +118,19 @@ typedef struct GenOpt {
 } GenOpt;
 
 gchar* exe_dir() {
-  gchar *d = g_path_get_dirname(g_get_prgname());
-  gchar *r = g_canonicalize_filename(d, NULL);
-  g_free(d);
+#ifdef __MINGW64__
+  wchar_t filename[MAX_PATH] = { 0 };
+  GetModuleFileNameW(NULL, filename, MAX_PATH);
+  gchar *path = g_utf16_to_utf8(filename, -1, NULL, NULL, NULL);
+  gchar *r = g_path_get_dirname(path);
+  g_free(path);
   return r;
+#else
+  char exe_path[PATH_MAX];
+  ssize_t nbytes = readlink("/proc/self/exe", exe_path, PATH_MAX);
+  exe_path[nbytes] = '\0';
+  return g_path_get_dirname(exe_path);
+#endif
 }
 
 GError* run_make(gchar *target, GenOpt *opt) {
@@ -128,6 +140,7 @@ GError* run_make(gchar *target, GenOpt *opt) {
 
   g_mkdir_with_parents(opt->out, 0775);
 
+  gchar *make = g_find_program_in_path("make");
   gchar makefile[PATH_MAX];
   snprintf(makefile, sizeof makefile, "%s/dummy-root-ca.mk", gui.exe_dir);
   gchar d[BUFSIZ];
@@ -136,19 +149,22 @@ GError* run_make(gchar *target, GenOpt *opt) {
   snprintf(key_size, sizeof key_size, "key_size=%s", opt->key_size);
   gchar tls_altname[BUFSIZ];
   snprintf(tls_altname, sizeof tls_altname, "tls.altname=%s", opt->altname);
+  gchar openssl_param[BUFSIZ];
+  gchar *openssl = g_find_program_in_path("openssl");
+  snprintf(openssl_param, sizeof openssl_param, "openssl=%s", openssl);
 
-  //  snprintf(buf, sizeof buf, "make -f %s -C %s d=%d key_size=%s tls.altname=%s %s", makefile, opt->out, opt->days, opt->key_size, opt->altname, target);
-  gchar *args[] = { "make", "-f", makefile, d, key_size, tls_altname, target,
-                    NULL };
-
+  gchar *args[] = { make, "-f", makefile, d, key_size, tls_altname,
+                    openssl_param, target, NULL };
   gint wait_status;
   GError *err = NULL;
-  if (!g_spawn_sync(opt->out, args, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL,
-                    NULL, &wait_status,&err))
-    return err;
-  if (!g_spawn_check_wait_status(wait_status, &err)) return err;
+  if (g_spawn_sync(opt->out, args, NULL, G_SPAWN_DEFAULT, NULL, NULL, NULL,
+                   NULL, &wait_status,&err)) {
+    g_spawn_check_wait_status(wait_status, &err);
+  }
 
-  return NULL;
+  g_free(make);
+  g_free(openssl);
+  return err;
 }
 
 gboolean idle_generate_button_toggle(gpointer _unused) {
@@ -331,7 +347,7 @@ int main(int argc, char **argv) {
     g_error("%s", error->message);
 
   char path[BUFSIZ];
-  gui.exe_dir = exe_dir();        // must run after gtk_init*()
+  gui.exe_dir = exe_dir();
   g_debug("exe_dir = %s", gui.exe_dir);
 
   gui.bld = gtk_builder_new();
