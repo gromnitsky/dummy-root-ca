@@ -1,5 +1,5 @@
 #ifdef __MINGW64__
-#include <windows.h>
+#include <libloaderapi.h>
 #endif
 #include <pthread.h>
 
