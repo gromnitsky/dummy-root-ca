@@ -127,12 +127,24 @@ GError* run_make(gchar *target, GenOpt *opt) {
   if (opt->overwrite_all) g_unlink(buf);
 
   g_mkdir_with_parents(opt->out, 0775);
-  snprintf(buf, sizeof buf, "make -f %s/dummy-root-ca.mk -C %s d=%d key_size=%s tls.altname=%s %s", gui.exe_dir, opt->out, opt->days, opt->key_size, opt->altname, target);
-  g_debug("run_make: %s", buf);
+
+  gchar makefile[PATH_MAX];
+  snprintf(makefile, sizeof makefile, "%s/dummy-root-ca.mk", gui.exe_dir);
+  gchar d[BUFSIZ];
+  snprintf(d, sizeof d, "d=%d", opt->days);
+  gchar key_size[BUFSIZ];
+  snprintf(key_size, sizeof key_size, "key_size=%s", opt->key_size);
+  gchar tls_altname[BUFSIZ];
+  snprintf(tls_altname, sizeof tls_altname, "tls.altname=%s", opt->altname);
+
+  //  snprintf(buf, sizeof buf, "make -f %s -C %s d=%d key_size=%s tls.altname=%s %s", makefile, opt->out, opt->days, opt->key_size, opt->altname, target);
+  gchar *args[] = { "make", "-f", makefile, d, key_size, tls_altname, target,
+                    NULL };
 
   gint wait_status;
   GError *err = NULL;
-  if (!g_spawn_command_line_sync(buf, NULL, NULL, &wait_status, &err))
+  if (!g_spawn_sync(opt->out, args, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL,
+                    NULL, &wait_status,&err))
     return err;
   if (!g_spawn_check_wait_status(wait_status, &err)) return err;
 
@@ -146,20 +158,6 @@ gboolean idle_generate_button_toggle(gpointer _unused) {
   else
     gtk_button_set_label(w, "Generate");
   return FALSE;
-}
-
-gboolean idle_progress_set(gpointer arg) {
-  gdouble *fraction = (gdouble*)arg;
-  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(gui.bld, "progress"));
-  gtk_progress_bar_set_fraction(progress, *fraction);
-  g_free(arg);
-  return FALSE;
-}
-
-void schedule_progress_update(gdouble fraction) {
-  gdouble *param = (gdouble*)g_malloc(1*sizeof(gdouble));
-  *param = fraction;
-  g_idle_add(idle_progress_set, param);
 }
 
 void generator_cleanup(void *arg) {
@@ -188,6 +186,7 @@ void* generator(void *arg) {    /* thread function */
 #endif
   g_idle_add(idle_generate_button_toggle, NULL);
 
+  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(gui.bld, "progress"));
   GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
   char target[PATH_MAX];
   GError *err;
@@ -200,7 +199,7 @@ void* generator(void *arg) {    /* thread function */
 #endif
     pthread_exit((void*)0);
   }
-  schedule_progress_update(0.25);
+  gtk_progress_bar_set_fraction(progress, 0.25);
 
   gtk_entry_buffer_set_text(log, "② Server private key...", -1);
   snprintf(target, sizeof target, "%s.pem", opt->cn);
@@ -211,7 +210,7 @@ void* generator(void *arg) {    /* thread function */
 #endif
     pthread_exit((void*)0);
   }
-  schedule_progress_update(0.5);
+  gtk_progress_bar_set_fraction(progress, 0.5);
 
   gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
   if ( (err = run_make("root.crt", opt))) {
@@ -221,7 +220,7 @@ void* generator(void *arg) {    /* thread function */
 #endif
     pthread_exit((void*)0);
   }
-  schedule_progress_update(0.75);
+  gtk_progress_bar_set_fraction(progress, 0.75);
 
   gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
   snprintf(target, sizeof target, "%s.crt", opt->cn);
@@ -237,7 +236,7 @@ void* generator(void *arg) {    /* thread function */
 #endif
     pthread_exit((void*)0);
   }
-  schedule_progress_update(0);
+  gtk_progress_bar_set_fraction(progress, 0);
 
   gtk_entry_buffer_set_text(log, "Done.", -1);
 #ifndef __MINGW64__
