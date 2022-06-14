@@ -29,12 +29,6 @@ void on_files_selection_changed(GtkTreeSelection *w) { /* TODO: remove */
   gtk_tree_selection_unselect_all(w);
 }
 
-void quit() {
-  g_object_unref(G_OBJECT(gui.bld)); // make valgrind happy
-  g_free(gui.exe_dir);
-  gtk_main_quit();
-}
-
 void on_out_button_clicked() {
   GtkWindow *parent = GTK_WINDOW(gtk_builder_get_object(gui.bld, "toplevel"));
   GtkWidget *w = gtk_file_chooser_dialog_new(NULL, parent, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Choose", GTK_RESPONSE_ACCEPT, NULL);
@@ -247,7 +241,6 @@ void on_generate_clicked() {
     return;
   }
 
-  g_debug("start Make");
   g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", opt->out, opt->days, opt->key_size, opt->cn, opt->altname, (int)strlen(opt->altname), opt->overwrite_all);
 
   char server_cert[BUFSIZ];
@@ -288,6 +281,7 @@ void on_generate_clicked() {
                                         tls_altname, openssl, target,
                                         NULL);
   genopt_free(&opt);
+  g_object_unref(lc);
   if (err) {
     info(err->message);
     return;
@@ -313,7 +307,7 @@ int main(int argc, char **argv) {
   gui.bld = gtk_builder_new_from_file(path);
 
   GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(gui.bld, "toplevel"));
-  g_signal_connect(toplevel, "destroy", quit, NULL);
+  g_signal_connect(toplevel, "destroy", gtk_main_quit, NULL);
   gtk_builder_connect_signals(gui.bld, NULL);
 
   // set 'out' directory
