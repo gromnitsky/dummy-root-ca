@@ -422,13 +422,36 @@
           </packing>
         </child>
         <child>
-          <object class="GtkEntry">
-            <property name="name">log</property>
+          <object class="GtkBox">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            <property name="margin-top">10</property>
-            <property name="buffer">log</property>
-            <property name="editable">False</property>
+            <property name="spacing">5</property>
+            <child>
+              <object class="GtkSpinner" id="spinner">
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">0</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkEntry">
+                <property name="name">log</property>
+                <property name="visible">True</property>
+                <property name="can-focus">False</property>
+                <property name="margin-top">10</property>
+                <property name="buffer">log</property>
+                <property name="editable">False</property>
+              </object>
+              <packing>
+                <property name="expand">True</property>
+                <property name="fill">True</property>
+                <property name="position">1</property>
+              </packing>
+            </child>
           </object>
           <packing>
             <property name="expand">False</property>
@@ -437,22 +460,10 @@
           </packing>
         </child>
         <child>
-          <object class="GtkProgressBar" id="progress">
-            <property name="visible">True</property>
-            <property name="can-focus">False</property>
-            <property name="show-text">True</property>
-          </object>
-          <packing>
-            <property name="expand">False</property>
-            <property name="fill">True</property>
-            <property name="position">6</property>
-          </packing>
-        </child>
-        <child>
           <object class="GtkBox">
             <property name="visible">True</property>
             <property name="can-focus">False</property>
-            <property name="margin-top">20</property>
+            <property name="margin-top">10</property>
             <child>
               <object class="GtkButton" id="generate">
                 <property name="label" translatable="yes">Generate</property>
@@ -487,7 +498,7 @@
           <packing>
             <property name="expand">False</property>
             <property name="fill">True</property>
-            <property name="position">7</property>
+            <property name="position">6</property>
           </packing>
         </child>
       </object>

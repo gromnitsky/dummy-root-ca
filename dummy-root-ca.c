@@ -1,7 +1,6 @@
 #ifdef __MINGW64__
 #include <libloaderapi.h>
 #endif
-#include <pthread.h>
 
 #define G_LOG_DOMAIN "dummy-root-ca"
 #include <glib/gstdio.h>
@@ -9,14 +8,14 @@
 
 typedef struct GUI {
   GtkBuilder *bld;
-  pthread_t generator_tid;      /* starts after 'Generate' button ckick */
-  gboolean generator_active;
   gchar *exe_dir;
+  GSubprocess *cmd;
+  GCancellable *cmd_ca;
 } GUI;
 
 GUI gui;
 
-void on_files_selection_changed(GtkTreeSelection *w) {
+void on_files_selection_changed(GtkTreeSelection *w) { /* TODO: remove */
   GtkTreeModel *model;
   GtkTreeIter iter;
   gchar *val;
@@ -40,9 +39,9 @@ void on_out_button_clicked() {
   GtkWindow *parent = GTK_WINDOW(gtk_builder_get_object(gui.bld, "toplevel"));
   GtkWidget *w = gtk_file_chooser_dialog_new(NULL, parent, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Choose", GTK_RESPONSE_ACCEPT, NULL);
   if (gtk_dialog_run(GTK_DIALOG(w)) == GTK_RESPONSE_ACCEPT) {
-    char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
+    g_autofree char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
     gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), dir);
-    g_free(dir);
+    // FIXME: save `dir`
   }
 
   gtk_widget_destroy(w);
@@ -117,6 +116,13 @@ typedef struct GenOpt {
   gboolean overwrite_all;
 } GenOpt;
 
+void genopt_free(GenOpt **v) {
+  g_free((*v)->key_size);
+  g_free((*v)->altname);
+  g_free(*v);
+  *v = NULL;
+}
+
 gchar* exe_dir() {
 #ifdef __MINGW64__
   wchar_t filename[MAX_PATH] = { 0 };
@@ -133,155 +139,23 @@ gchar* exe_dir() {
 #endif
 }
 
-GError* run_make(gchar *target, GenOpt *opt) {
-  char buf[BUFSIZ];
-  snprintf(buf, sizeof buf, "%s/%s", opt->out, target);
-  if (opt->overwrite_all) g_unlink(buf);
-
-  g_mkdir_with_parents(opt->out, 0775);
-
-  gchar *make = g_find_program_in_path("make");
-  gchar makefile[PATH_MAX];
-  snprintf(makefile, sizeof makefile, "%s/dummy-root-ca.mk", gui.exe_dir);
-  gchar d[BUFSIZ];
-  snprintf(d, sizeof d, "d=%d", opt->days);
-  gchar key_size[BUFSIZ];
-  snprintf(key_size, sizeof key_size, "key_size=%s", opt->key_size);
-  gchar tls_altname[BUFSIZ];
-  snprintf(tls_altname, sizeof tls_altname, "tls.altname=%s", opt->altname);
-  gchar openssl_param[BUFSIZ];
-  gchar *openssl = g_find_program_in_path("openssl");
-  snprintf(openssl_param, sizeof openssl_param, "openssl=%s", openssl);
-
-  gchar *args[] = { make, "-f", makefile, d, key_size, tls_altname,
-                    openssl_param, target, NULL };
-  gint wait_status;
-  GError *err = NULL;
-  if (g_spawn_sync(opt->out, args, NULL, G_SPAWN_DEFAULT, NULL, NULL, NULL,
-                   NULL, &wait_status,&err)) {
-    g_spawn_check_wait_status(wait_status, &err);
-  }
-
-  g_free(make);
-  g_free(openssl);
-  return err;
+void info(gchar *msg) {
+  GtkEntryBuffer *w = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
+  gtk_entry_buffer_set_text(w, msg, -1);
 }
 
-gboolean idle_generate_button_toggle(gpointer _unused) {
-  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(gui.bld, "generate"));
-  if (0 == strcmp(gtk_button_get_label(w), "Generate"))
-    gtk_button_set_label(w, "Abort");
+void spinner() {
+  GtkSpinner *w = GTK_SPINNER(gtk_builder_get_object(gui.bld, "spinner"));
+  if (NULL != g_subprocess_get_identifier(gui.cmd)) // process isn't dead
+    gtk_spinner_start(w);
   else
-    gtk_button_set_label(w, "Generate");
-  return FALSE;
+    gtk_spinner_stop(w);
 }
 
-void generator_cleanup(void *arg) {
-  g_debug("generator_cleanup()");
-  GenOpt *opt = (GenOpt*)arg;
-  g_free(opt->key_size);
-  g_free(opt->altname);
-  g_free(opt);
-
-  g_idle_add(idle_generate_button_toggle, NULL);
-  gui.generator_active = FALSE; /* mark thread as finished */
-}
-
-void generator_log(GtkEntryBuffer *sink, gchar *msg, GError **err) {
-  char buf[BUFSIZ];
-  snprintf(buf, sizeof buf, "Error: %s: %s", msg, (*err)->message);
-  gtk_entry_buffer_set_text(sink, buf, -1);
-  g_error_free(*err);
-}
-
-void* generator(void *arg) {    /* thread function */
-  GenOpt *opt = (GenOpt*)arg;
-  gui.generator_active = TRUE;
-#ifndef __MINGW64__
-  pthread_cleanup_push(generator_cleanup, opt);
-#endif
-  g_idle_add(idle_generate_button_toggle, NULL);
-
-  GtkProgressBar *progress = GTK_PROGRESS_BAR(gtk_builder_get_object(gui.bld, "progress"));
-  GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
-  char target[PATH_MAX];
-  GError *err;
-
-  gtk_entry_buffer_set_text(log, "① Root private key...", -1);
-  if ( (err = run_make("root.pem", opt))) {
-    generator_log(log, "making root private key failed", &err);
-#ifdef __MINGW64__
-    generator_cleanup(opt);
-#endif
-    pthread_exit((void*)0);
-  }
-  gtk_progress_bar_set_fraction(progress, 0.25);
-
-  gtk_entry_buffer_set_text(log, "② Server private key...", -1);
-  snprintf(target, sizeof target, "%s.pem", opt->cn);
-  if ( (err = run_make(target, opt))) {
-    generator_log(log, "making server private key failed", &err);
-#ifdef __MINGW64__
-    generator_cleanup(opt);
-#endif
-    pthread_exit((void*)0);
-  }
-  gtk_progress_bar_set_fraction(progress, 0.5);
-
-  gtk_entry_buffer_set_text(log, "③ Root certificate...", -1);
-  if ( (err = run_make("root.crt", opt))) {
-    generator_log(log, "making root certificate failed", &err);
-#ifdef __MINGW64__
-    generator_cleanup(opt);
-#endif
-    pthread_exit((void*)0);
-  }
-  gtk_progress_bar_set_fraction(progress, 0.75);
-
-  gtk_entry_buffer_set_text(log, "④ Server certificate...", -1);
-  snprintf(target, sizeof target, "%s.crt", opt->cn);
-  if (!opt->overwrite_all) {
-    char old[BUFSIZ];
-    snprintf(old, sizeof old, "%s/%s", opt->out, target);
-    g_unlink(old);
-  }
-  if ( (err = run_make(target, opt))) {
-    generator_log(log, "making server certificate failed", &err);
-#ifdef __MINGW64__
-    generator_cleanup(opt);
-#endif
-    pthread_exit((void*)0);
-  }
-  gtk_progress_bar_set_fraction(progress, 0);
-
-  gtk_entry_buffer_set_text(log, "Done.", -1);
-#ifndef __MINGW64__
-  pthread_cleanup_pop(1);
-#else
-  generator_cleanup(opt);
-#endif
-  return (void*)1;
-}
-
-void generate(const gchar *out, gint days, gchar *key_size,
-                    const gchar *cn, gchar *altname, gboolean overwrite_all) {
-  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", out, days, key_size, cn, altname, (int)strlen(altname), overwrite_all);
-
-  if (!strlen(cn)) {
-    GtkEntryBuffer *log = GTK_ENTRY_BUFFER(gtk_builder_get_object(gui.bld, "log"));
-    gtk_entry_buffer_set_text(log, "Error: CommonName is empty or invalid", -1);
-    return;
-  }
-
-  GenOpt *opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
-  opt->out = out;
-  opt->key_size = strdup(key_size);
-  opt->days = days;
-  opt->cn = cn;
-  opt->altname = strdup(altname);
-  opt->overwrite_all = overwrite_all;
-
-  pthread_create(&gui.generator_tid, NULL, generator, opt);
+void generate_button_label_toggle() {
+  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(gui.bld, "generate"));
+  gchar *t = (0 == strcmp(gtk_button_get_label(w), "Abort")) ? "Generate" : "Abort";
+  gtk_button_set_label(w, t);
 }
 
 int altname_get_theoretical_size(const gchar *altname_orig) {
@@ -295,19 +169,17 @@ int altname_get_theoretical_size(const gchar *altname_orig) {
   return size;
 }
 
-void on_generate_clicked() {
-  if (gui.generator_active && 0 == pthread_cancel(gui.generator_tid)) {
-    g_debug("cancel thread");
-    return;
-  }
+GenOpt* generator_options() {
+  GenOpt* opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
 
-  const gchar *out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")));
-  gint days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(gui.bld, "days")));
-  gchar *key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(gui.bld, "key_size")));
+  opt->out = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")));
+  opt->days = gtk_spin_button_get_value(GTK_SPIN_BUTTON(gtk_builder_get_object(gui.bld, "days")));
+  opt->key_size = gtk_combo_box_text_get_active_text(GTK_COMBO_BOX_TEXT(gtk_builder_get_object(gui.bld, "key_size")));
 
-  const gchar *cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "CN")));
-  if (!is_valid_domain(cn)) cn = "";
+  opt->cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "CN")));
+  if (!is_valid_domain(opt->cn)) opt->cn = "";
 
+  // FIXME: simplify
   const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "subjectAltName")));
   int altname_size = altname_get_theoretical_size(altname_orig);
   gchar *altname[altname_size+1]; // ["DNS:example.com", "IP:127.0.0.1", NULL]
@@ -328,17 +200,101 @@ void on_generate_clicked() {
   } else {
     altname[0] = NULL;
   }
-  gchar *an = g_strjoinv(",", altname);
-
-  gboolean overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite1")));
-
-  // starts a new thread
-  generate(out, days, key_size, cn, an, overwrite_all);
-
+  opt->altname = g_strjoinv(",", altname);
   // cleanup
-  g_free(key_size);
-  g_free(an);
   for (gchar **p = altname; *p; p++) g_free(*p);
+
+  opt->overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite1")));
+
+  return opt;
+}
+
+void cmd_callback(GObject *_source_object, GAsyncResult *_res, gpointer _data) {
+  spinner();
+  gint exit_code = g_subprocess_get_exit_status(gui.cmd);
+  gboolean cancelled = g_cancellable_is_cancelled(gui.cmd_ca);
+  g_debug("Make exit code: %d", exit_code);
+  g_debug("Make cancelled: %d", cancelled);
+
+  if (cancelled) {
+    info("Interrupted by user");
+  } else if (exit_code != 0) {
+    info("Operation failed, see stderr"); // FIXME: get error desc
+  } else {
+    info("Done.");
+  }
+
+  generate_button_label_toggle();
+}
+
+void on_generate_clicked() {
+  if (NULL != g_subprocess_get_identifier(gui.cmd)) { // process isn't dead
+    g_debug("abort Make");
+#ifdef __MINGW64__
+    g_subprocess_force_exit(gui.cmd); /* SIGKILL */
+#else
+    g_subprocess_send_signal(gui.cmd, 2); /* SIGINT */
+#endif
+    g_cancellable_cancel(gui.cmd_ca);
+    return;
+  }
+
+  GenOpt *opt = generator_options();
+
+  if (!strlen(opt->cn)) {
+    info("CommonName is empty or invalid");
+    genopt_free(&opt);
+    return;
+  }
+
+  g_debug("start Make");
+  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", opt->out, opt->days, opt->key_size, opt->cn, opt->altname, (int)strlen(opt->altname), opt->overwrite_all);
+
+  char server_cert[BUFSIZ];
+  snprintf(server_cert, sizeof server_cert, "%s.crt", opt->cn);
+
+  if (!opt->overwrite_all) g_unlink(server_cert);
+
+  g_autofree gchar *make = g_find_program_in_path("make");
+
+  gchar makefile[PATH_MAX];
+  snprintf(makefile, sizeof makefile, "%s/dummy-root-ca.mk", gui.exe_dir);
+
+  gchar d[BUFSIZ];
+  snprintf(d, sizeof d, "d=%d", opt->days);
+
+  gchar key_size[BUFSIZ];
+  snprintf(key_size, sizeof key_size, "key_size=%s", opt->key_size);
+
+  gchar tls_altname[BUFSIZ];
+  snprintf(tls_altname, sizeof tls_altname, "tls.altname=%s", opt->altname);
+
+  gchar openssl[BUFSIZ];
+  g_autofree gchar *openssl_cmd = g_find_program_in_path("openssl");
+  snprintf(openssl, sizeof openssl, "openssl=%s", openssl_cmd);
+
+  g_autoptr(GError) err = NULL;
+  g_cancellable_reset(gui.cmd_ca);
+  g_mkdir_with_parents(opt->out, 0775);
+
+  GSubprocessLauncher *lc = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE);
+  g_subprocess_launcher_set_cwd(lc, opt->out);
+  gui.cmd = g_subprocess_launcher_spawn(lc, &err,
+                                        make, opt->overwrite_all ? "-B" : "-b",
+                                        "-f", makefile, d, key_size,
+                                        tls_altname, openssl, server_cert,
+                                        NULL);
+  genopt_free(&opt);
+  if (err) {
+    info(err->message);
+    return;
+  }
+
+  g_subprocess_wait_async(gui.cmd, gui.cmd_ca, cmd_callback, NULL);
+
+  info("Processing...");
+  spinner();
+  generate_button_label_toggle();
 }
 
 int main(int argc, char **argv) {
@@ -346,14 +302,12 @@ int main(int argc, char **argv) {
   if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
     g_error("%s", error->message);
 
-  char path[BUFSIZ];
   gui.exe_dir = exe_dir();
   g_debug("exe_dir = %s", gui.exe_dir);
 
-  gui.bld = gtk_builder_new();
+  char path[BUFSIZ];
   snprintf(path, sizeof path, "%s/gui.xml", gui.exe_dir);
-  if (!gtk_builder_add_from_file(gui.bld, path, &error))
-    g_error("%s", error->message);
+  gui.bld = gtk_builder_new_from_file(path);
 
   GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(gui.bld, "toplevel"));
   g_signal_connect(toplevel, "destroy", quit, NULL);
@@ -374,6 +328,9 @@ int main(int argc, char **argv) {
   if (!gtk_css_provider_load_from_path(cssProvider, path, &error))
     g_error("%s", error->message);
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
+
+  // for 'abort' button
+  gui.cmd_ca = g_cancellable_new();
 
   gtk_widget_show(toplevel);
   gtk_main();

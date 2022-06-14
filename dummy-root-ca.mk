@@ -36,3 +36,5 @@ altname = DNS:$(basename $@),IP:127.0.0.1
 else
 altname = DNS:$(basename $@),$(shell ip -br addr | awk '{split($$3, a, "/"); print "IP:"a[1]}' | paste -s -d,)
 endif
+
+.DELETE_ON_ERROR:
