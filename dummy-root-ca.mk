@@ -7,7 +7,11 @@ key_size := 4096
 
 openssl := openssl
 
-ifneq '$(findstring ;,$(PATH))' ';'
+ifeq '$(findstring ;,$(PATH))' ';'
+# Windows
+self := $(dir $(realpath $(lastword $(MAKEFILE_LIST))))
+export OPENSSL_CONF := $(self)/openssl.cnf
+else
 all: $(shell hostname -f).crt
 endif
 

@@ -251,9 +251,12 @@ void on_generate_clicked() {
   g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", opt->out, opt->days, opt->key_size, opt->cn, opt->altname, (int)strlen(opt->altname), opt->overwrite_all);
 
   char server_cert[BUFSIZ];
-  snprintf(server_cert, sizeof server_cert, "%s.crt", opt->cn);
-
+  snprintf(server_cert, sizeof server_cert, "%s/%s.crt", opt->out, opt->cn);
+  g_debug("unlinking %s", server_cert);
   if (!opt->overwrite_all) g_unlink(server_cert);
+
+  char target[BUFSIZ];
+  snprintf(target, sizeof target, "%s.crt", opt->cn);
 
   g_autofree gchar *make = g_find_program_in_path("make");
 
@@ -282,7 +285,7 @@ void on_generate_clicked() {
   gui.cmd = g_subprocess_launcher_spawn(lc, &err,
                                         make, opt->overwrite_all ? "-B" : "-b",
                                         "-f", makefile, d, key_size,
-                                        tls_altname, openssl, server_cert,
+                                        tls_altname, openssl, target,
                                         NULL);
   genopt_free(&opt);
   if (err) {
