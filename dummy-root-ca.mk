@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-root.ca := $(USER)\'s Dummy Root CA
+root.ca := $(or $(USER), $(USERNAME))\'s Dummy Root CA
 tls.altname :=
 d := 3650
 key_size := 4096
