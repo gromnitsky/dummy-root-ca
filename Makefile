@@ -2,7 +2,6 @@
 
 target := $(shell gcc -dumpmachine)
 out := _out/$(target)
-libcache := $(out)/.cache
 releases := _out/$(target).releases
 ver := $(shell cat VERSION)
 
@@ -20,27 +19,28 @@ endif
 CFLAGS := $(shell $(pkg-config) --cflags gtk+-3.0) -g -Wall
 LDFLAGS := $(shell $(pkg-config) --libs gtk+-3.0) $(ld.extra)
 
-obj := $(patsubst %.c, $(libcache)/%.o, $(wildcard *.c))
 static.dest := $(patsubst %, $(out)/%, gui.xml style.css dummy-root-ca.mk)
 
 all := $(out)/$(progname) $(static.dest)
 all: $(all)
 
-$(out)/$(progname): $(obj)
-	$(CC) $^ -o $@ $(LDFLAGS)
+define exe
+$(mkdir)
+$(CC) $< -o $@ $(CFLAGS) $(LDFLAGS)
+endef
 
-$(libcache)/%.o: %.c
-	$(mkdir)
-	$(CC) $< -o $@ -c $(CFLAGS)
+$(out)/%: %.c lib.c; $(exe)
+$(out)/%.exe: %.c lib.c; $(exe)
 
 $(static.dest): $(out)/%: %
+	$(mkdir)
 	cp $< $@
 
 export G_MESSAGES_DEBUG := dummy-root-ca
 
 %.valgrind: %
-	valgrind --log-file=$(libcache)/vgdump --track-origins=yes --leak-check=full --show-leak-kinds=definite --suppressions=/usr/share/gtk-3.0/valgrind/gtk.supp ./$*
-	$(EDITOR) $(libcache)/vgdump &
+	valgrind --log-file=$(out)/.vgdump --track-origins=yes --leak-check=full --show-leak-kinds=definite --suppressions=/usr/share/gtk-3.0/valgrind/gtk.supp ./$*
+	$(EDITOR) $(out)/.vgdump
 
 mkdir = @mkdir -p $(dir $@)
 
@@ -49,6 +49,7 @@ mkdir = @mkdir -p $(dir $@)
 zip := $(releases)/$(ver)/$(rel).zip
 zip: $(zip)
 
+# dnf install mingw64-gtk3 mingw64-hicolor-icon-theme mingw64-librsvg2 mingw64-xz
 ifeq ($(target),x86_64-w64-mingw32)
 $(zip): $(all)
 	rm -rf $(dir $@) $(releases)/$(rel).zip

@@ -6,6 +6,8 @@
 #include <glib/gstdio.h>
 #include <gtk/gtk.h>
 
+#include "lib.c"
+
 typedef struct GUI {
   GtkBuilder *bld;
   gchar *exe_dir;
@@ -41,17 +43,9 @@ void on_out_button_clicked() {
   gtk_widget_destroy(w);
 }
 
-gboolean is_valid_domain(const gchar *cn) {
-  return g_regex_match_simple("(?=^.{1,253}$)(^(((?!-)[a-zA-Z0-9-]{1,63}(?<!-))|((?!-)[a-zA-Z0-9-]{1,63}(?<!-)\\.)+[a-zA-Z]{2,63})$)", cn, 0, 0);
-}
-
-gboolean is_valid_ip4(const gchar *ip) {
-  return g_regex_match_simple("^[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}$", ip, 0, 0);
-}
-
 void on_CN_changed(GtkEntry *w) {
   const gchar *cn_orig = gtk_entry_get_text(w);
-  gchar *cn = strdup(cn_orig);
+  gchar *cn = g_strdup(cn_orig);
 
   GtkStyleContext *ctx = gtk_widget_get_style_context(GTK_WIDGET(w));
   if (is_valid_domain(cn)) {
@@ -74,21 +68,6 @@ void on_CN_changed(GtkEntry *w) {
   snprintf(fname, sizeof fname, (strlen(cn) ? "%s.crt" : "%s-"), cn);
   gtk_list_store_set(ls, &i, 2, fname, -1);
   g_free(cn);
-}
-
-gboolean is_valid_altname(const gchar *altname) { // empty altname is OK
-  gboolean r = TRUE;
-  gchar **list = g_regex_split_simple(",", altname, 0, 0);
-  for (gchar **p = list; *p; p++) {
-    g_strstrip(*p); if (!strlen(*p)) continue;
-
-    if ( !(is_valid_domain(*p) || is_valid_ip4(*p))) {
-      r = FALSE;
-      break;
-    }
-  }
-  g_strfreev(list);
-  return r;
 }
 
 void on_subjectAltName_changed(GtkEntry *w) {
@@ -152,17 +131,6 @@ void generate_button_label_toggle() {
   gtk_button_set_label(w, t);
 }
 
-int altname_get_theoretical_size(const gchar *altname_orig) {
-  int size = 0;
-  gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
-  for (gchar **p = list; *p; p++) {
-    g_strstrip(*p); if (!strlen(*p)) continue;
-    size++;
-  }
-  g_strfreev(list);
-  return size;
-}
-
 GenOpt* generator_options() {
   GenOpt* opt = (GenOpt*)g_malloc(1*sizeof(GenOpt));
 
@@ -173,30 +141,7 @@ GenOpt* generator_options() {
   opt->cn = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "CN")));
   if (!is_valid_domain(opt->cn)) opt->cn = "";
 
-  // FIXME: simplify
-  const gchar *altname_orig = gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "subjectAltName")));
-  int altname_size = altname_get_theoretical_size(altname_orig);
-  gchar *altname[altname_size+1]; // ["DNS:example.com", "IP:127.0.0.1", NULL]
-
-  if (is_valid_altname(altname_orig)) {
-    int idx = 0;
-    gchar **list = g_regex_split_simple(",", altname_orig, 0, 0);
-    for (gchar **p = list; *p; p++) {
-      g_strstrip(*p); if (!strlen(*p)) continue;
-
-      int len = strlen(*p)+10;
-      gchar *val = g_malloc(len);
-      snprintf(val, len, (is_valid_domain(*p) ? "DNS:%s" : "IP:%s"), *p);
-      altname[idx++] = val;
-    }
-    altname[altname_size] = NULL;
-    g_strfreev(list);
-  } else {
-    altname[0] = NULL;
-  }
-  opt->altname = g_strjoinv(",", altname);
-  // cleanup
-  for (gchar **p = altname; *p; p++) g_free(*p);
+  opt->altname = altname(gtk_entry_get_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "subjectAltName"))));
 
   opt->overwrite_all = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite1")));
 
@@ -213,7 +158,7 @@ void cmd_callback(GObject *_source_object, GAsyncResult *_res, gpointer _data) {
   if (cancelled) {
     info("Interrupted by user");
   } else if (exit_code != 0) {
-    info("Operation failed, see stderr"); // FIXME: get error desc
+    info("Operation failed, see stderr");
   } else {
     info("Done.");
   }
