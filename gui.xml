@@ -34,7 +34,6 @@
   <object class="GtkEntryBuffer" id="log"/>
   <object class="GtkWindow" id="toplevel">
     <property name="can-focus">False</property>
-    <property name="title" translatable="yes">Dummy Root CA</property>
     <child>
       <object class="GtkBox">
         <property name="visible">True</property>

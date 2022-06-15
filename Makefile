@@ -20,21 +20,29 @@ CFLAGS := $(shell $(pkg-config) --cflags gtk+-3.0) -g -Wall
 LDFLAGS := $(shell $(pkg-config) --libs gtk+-3.0) $(ld.extra)
 
 static.dest := $(patsubst %, $(out)/%, gui.xml style.css dummy-root-ca.mk)
+obj :=
 
 all := $(out)/$(progname) $(static.dest)
 all: $(all)
 
 define exe
 $(mkdir)
-$(CC) $< -o $@ $(CFLAGS) $(LDFLAGS)
+$(CC) $< -o $@ $(obj) $(CFLAGS) $(LDFLAGS)
 endef
 
 $(out)/%: %.c lib.c; $(exe)
-$(out)/%.exe: %.c lib.c; $(exe)
+
+$(out)/%.exe: obj += $(out)/.cache/meta.res
+$(out)/%.exe: %.c lib.c $(out)/.cache/meta.res
+	$(exe)
 
 $(static.dest): $(out)/%: %
 	$(mkdir)
 	cp $< $@
+
+$(out)/.cache/meta.res: meta.rc app.ico
+	$(mkdir)
+	x86_64-w64-mingw32-windres $< -O coff -o $@
 
 export G_MESSAGES_DEBUG := dummy-root-ca
 

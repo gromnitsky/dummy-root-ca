@@ -245,6 +245,8 @@ void on_generate_clicked() {
 }
 
 int main(int argc, char **argv) {
+  putenv("GTK_CSD=0");          /* how do I set this via Glade? */
+
   GError *error = NULL;
   if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
     g_error("%s", error->message);
@@ -257,6 +259,7 @@ int main(int argc, char **argv) {
   gui.bld = gtk_builder_new_from_file(buf);
 
   GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(gui.bld, "toplevel"));
+  gtk_window_set_title(GTK_WINDOW(toplevel), "Dummy Root CA");
   g_signal_connect(toplevel, "destroy", gtk_main_quit, NULL);
   gtk_builder_connect_signals(gui.bld, NULL);
 
