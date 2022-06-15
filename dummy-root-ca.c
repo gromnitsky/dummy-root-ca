@@ -13,6 +13,8 @@ typedef struct GUI {
   gchar *exe_dir;
   GSubprocess *cmd;
   GCancellable *cmd_ca;
+  gchar *inifile;
+  GKeyFile* ini;
 } GUI;
 
 GUI gui;
@@ -37,7 +39,10 @@ void on_out_button_clicked() {
   if (gtk_dialog_run(GTK_DIALOG(w)) == GTK_RESPONSE_ACCEPT) {
     g_autofree char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
     gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), dir);
-    // FIXME: save `dir`
+
+    // save it in .ini file
+    g_key_file_set_string(gui.ini, "struct", "out", dir);
+    g_key_file_save_to_file(gui.ini, gui.inifile, NULL);
   }
 
   gtk_widget_destroy(w);
@@ -247,18 +252,35 @@ int main(int argc, char **argv) {
   gui.exe_dir = exe_dir();
   g_debug("exe_dir = %s", gui.exe_dir);
 
-  char path[BUFSIZ];
-  snprintf(path, sizeof path, "%s/gui.xml", gui.exe_dir);
-  gui.bld = gtk_builder_new_from_file(path);
+  char buf[PATH_MAX];
+  snprintf(buf, sizeof buf, "%s/gui.xml", gui.exe_dir);
+  gui.bld = gtk_builder_new_from_file(buf);
 
   GtkWidget *toplevel = GTK_WIDGET(gtk_builder_get_object(gui.bld, "toplevel"));
   g_signal_connect(toplevel, "destroy", gtk_main_quit, NULL);
   gtk_builder_connect_signals(gui.bld, NULL);
 
-  // set 'out' directory
-  char out[PATH_MAX];
-  argc > 1 ? strcpy(out, argv[1]) : getcwd(out, sizeof out);
-  gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), out);
+  GtkEntry *out = GTK_ENTRY(gtk_builder_get_object(gui.bld, "out"));
+
+  // load state file
+  gui.inifile = g_build_filename(g_get_user_state_dir(),
+                                 G_LOG_DOMAIN, "genopt.ini", NULL);
+  g_debug("inifile: %s", gui.inifile);
+  g_autofree gchar *ini_dir = g_path_get_dirname(gui.inifile);
+  g_mkdir_with_parents(ini_dir, 0775);
+  gui.ini = g_key_file_new();
+  if (g_key_file_load_from_file(gui.ini, gui.inifile, G_KEY_FILE_NONE, NULL)) {
+    g_autofree gchar *v = g_key_file_get_string(gui.ini, "struct", "out", NULL);
+    if (v) gtk_entry_set_text(out, v);
+  }
+
+  // set 'out'
+  if (argc > 1) {
+    gtk_entry_set_text(out, argv[1]);
+  } else {
+    if (0 == strlen(gtk_entry_get_text(out)))
+      gtk_entry_set_text(out, getcwd(buf, sizeof buf));
+  }
 
   // toggle buttons & focus
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(gtk_builder_get_object(gui.bld, "overwrite2")), TRUE);
@@ -266,8 +288,8 @@ int main(int argc, char **argv) {
 
   // load CSS
   GtkCssProvider *cssProvider = gtk_css_provider_new();
-  snprintf(path, sizeof path, "%s/style.css", gui.exe_dir);
-  if (!gtk_css_provider_load_from_path(cssProvider, path, &error))
+  snprintf(buf, sizeof buf, "%s/style.css", gui.exe_dir);
+  if (!gtk_css_provider_load_from_path(cssProvider, buf, &error))
     g_error("%s", error->message);
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
 
