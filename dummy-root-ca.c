@@ -35,9 +35,9 @@ void on_files_selection_changed(GtkTreeSelection *w) { /* TODO: remove */
 
 void on_out_button_clicked() {
   GtkWindow *parent = GTK_WINDOW(gtk_builder_get_object(gui.bld, "toplevel"));
-  GtkWidget *w = gtk_file_chooser_dialog_new(NULL, parent, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Cancel", GTK_RESPONSE_CANCEL, "Choose", GTK_RESPONSE_ACCEPT, NULL);
-  if (gtk_dialog_run(GTK_DIALOG(w)) == GTK_RESPONSE_ACCEPT) {
-    g_autofree char *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
+  GtkFileChooserNative *w = gtk_file_chooser_native_new("Choose directory", parent, GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER, "Choose", "Cancel");
+  if (gtk_native_dialog_run(GTK_NATIVE_DIALOG(w)) == GTK_RESPONSE_ACCEPT) {
+    g_autofree gchar *dir = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(w));
     gtk_entry_set_text(GTK_ENTRY(gtk_builder_get_object(gui.bld, "out")), dir);
 
     // save it in .ini file
@@ -45,7 +45,7 @@ void on_out_button_clicked() {
     g_key_file_save_to_file(gui.ini, gui.inifile, NULL);
   }
 
-  gtk_widget_destroy(w);
+  g_object_unref(w);
 }
 
 void on_CN_changed(GtkEntry *w) {
