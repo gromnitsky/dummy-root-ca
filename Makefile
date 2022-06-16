@@ -69,8 +69,7 @@ $(zip): $(all)
 	cp /usr/x86_64-w64-mingw32/sys-root/mingw/bin/gspawn-win64-helper* $(dir $@)/bin
 	cp -t $(dir $@)/bin \
 	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/libxml2-2.dll \
-	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/librsvg-2-2.dll \
-	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/liblzma-5.dll
+	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/librsvg-2-2.dll
 	cp -t $(dir $@)/bin vendor/*
 	cp -t $(dir $@)/bin $^
 	cp -r /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gdk-pixbuf-2.0 $(dir $@)/lib
