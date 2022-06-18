@@ -16,7 +16,7 @@ ld.extra := -Wl,-export-all-symbols #-mwindows
 progname := dummy-root-ca.exe
 endif
 
-CFLAGS := $(shell $(pkg-config) --cflags gtk+-3.0) -g -Wall
+CFLAGS := $(shell $(pkg-config) --cflags gtk+-3.0) -g -Wall -Werror
 LDFLAGS := $(shell $(pkg-config) --libs gtk+-3.0) $(ld.extra)
 
 static.dest := $(patsubst %, $(out)/%, gui.xml style.css dummy-root-ca.mk)
@@ -51,31 +51,29 @@ export G_MESSAGES_DEBUG := dummy-root-ca
 	$(EDITOR) $(out)/.vgdump
 
 mkdir = @mkdir -p $(dir $@)
+SHELL := bash
 
 
 
 zip := $(releases)/$(ver)/$(rel).zip
 zip: $(zip)
 
-# dnf install mingw64-gtk3 mingw64-hicolor-icon-theme mingw64-librsvg2 mingw64-xz
+# dnf install mingw64-gtk3 mingw64-hicolor-icon-theme mingw64-librsvg2
+# https://github.com/gsauthof/pe-util
 ifeq ($(target),x86_64-w64-mingw32)
+mingw := /usr/x86_64-w64-mingw32/sys-root/mingw
 $(zip): $(all)
 	rm -rf $(dir $@) $(releases)/$(rel).zip
-	$(mkdir)/bin
-	$(mkdir)/lib
-	$(mkdir)/share/icons
-	$(mkdir)/share/glib-2.0/schemas
+	$(mkdir)/{bin,lib,share/icons,share/glib-2.0/schemas}
 	peldd $(out)/$(progname) --ignore-errors -t | xargs cp -t $(dir $@)/bin
-	cp /usr/x86_64-w64-mingw32/sys-root/mingw/bin/gspawn-win64-helper* $(dir $@)/bin
-	cp -t $(dir $@)/bin \
-	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/libxml2-2.dll \
-	 /usr/x86_64-w64-mingw32/sys-root/mingw/bin/librsvg-2-2.dll
-	cp -t $(dir $@)/bin vendor/*
-	cp -t $(dir $@)/bin $^
-	cp -r /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gdk-pixbuf-2.0 $(dir $@)/lib
+	cp $(mingw)/bin/gspawn-win64-helper-console.exe \
+	 $(mingw)/bin/libxml2-2.dll \
+	 $(mingw)/bin/librsvg-2-2.dll \
+	 vendor/* $^ \
+	 $(dir $@)/bin
+	cp -r $(mingw)/lib/gdk-pixbuf-2.0 $(dir $@)/lib
 	mv $(dir $@)/bin/loaders.cache $(dir $@)/lib/gdk-pixbuf-2.0/2.10.0
-	cp -r /usr/x86_64-w64-mingw32/sys-root/mingw/share/icons/Adwaita $(dir $@)/share/icons
-	cp -r /usr/x86_64-w64-mingw32/sys-root/mingw/share/icons/hicolor $(dir $@)/share/icons
-	cp -r /usr/x86_64-w64-mingw32/sys-root/mingw/share/glib-2.0/schemas $(dir $@)/share/glib-2.0
+	cp -r $(mingw)/share/icons/{Adwaita,hicolor} $(dir $@)/share/icons
+	cp -r $(mingw)/share/glib-2.0/schemas $(dir $@)/share/glib-2.0
 	cd $(dir $@) && zip -qr ../$(notdir $@) .
 endif
