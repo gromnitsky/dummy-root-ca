@@ -7,12 +7,11 @@
 #include <gtk/gtk.h>
 
 #include "lib.c"
+#include "ca.c"
 
 typedef struct GUI {
   GtkBuilder *bld;
   gchar *exe_dir;
-  GSubprocess *cmd;
-  GCancellable *cmd_ca;
   gchar *inifile;
   GKeyFile* ini;
 } GUI;
@@ -124,16 +123,16 @@ void info(gchar *msg) {
 
 void spinner() {
   GtkSpinner *w = GTK_SPINNER(gtk_builder_get_object(gui.bld, "spinner"));
-  if (NULL != g_subprocess_get_identifier(gui.cmd)) // process isn't dead
+  GtkWidget *btn = GTK_WIDGET(gtk_builder_get_object(gui.bld, "generate"));
+  if (gtk_widget_get_sensitive(btn)) // operation is ongoing
     gtk_spinner_start(w);
   else
     gtk_spinner_stop(w);
 }
 
-void generate_button_label_toggle() {
-  GtkButton *w = GTK_BUTTON(gtk_builder_get_object(gui.bld, "generate"));
-  gchar *t = (0 == strcmp(gtk_button_get_label(w), "Abort")) ? "Generate" : "Abort";
-  gtk_button_set_label(w, t);
+void generate_button_toggle() {
+  GtkWidget *w = GTK_WIDGET(gtk_builder_get_object(gui.bld, "generate"));
+  gtk_widget_set_sensitive(w, !gtk_widget_is_sensitive(w));
 }
 
 GenOpt* generator_options() {
@@ -153,36 +152,37 @@ GenOpt* generator_options() {
   return opt;
 }
 
-void cmd_callback(GObject *_source_object, GAsyncResult *_res, gpointer _data) {
-  spinner();
-  gint exit_code = g_subprocess_get_exit_status(gui.cmd);
-  gboolean cancelled = g_cancellable_is_cancelled(gui.cmd_ca);
-  g_debug("Make exit code: %d", exit_code);
-  g_debug("Make cancelled: %d", cancelled);
+void generator_finish(GObject *_unused, GAsyncResult *res, gpointer user_data) {
+  GenOpt *opt = user_data;
+  g_debug("generate_finish: %s", opt->cn);
+  genopt_free(&opt);
 
-  if (cancelled) {
-    info("Interrupted by user");
-  } else if (exit_code != 0) {
-    info("Operation failed, see stderr");
+  GError *err = g_task_propagate_pointer(G_TASK(res), NULL);
+  g_debug("generate_finish: error = %s", err ? err->message : "none");
+
+  if (err) {
+    info(err->message);         /* FIXME */
   } else {
     info("Done.");
   }
 
-  generate_button_label_toggle();
+  if (err) g_error_free(err);
+  spinner();
+  generate_button_toggle();
+}
+
+/* FIXME: use opt->out */
+void generator_in_thread(GTask *task, gpointer _source_object,
+                         gpointer task_data, GCancellable *_cancellable) {
+  g_debug("generate_in_thread");
+  GenOpt *opt = task_data;
+  GError *err = NULL; // frees `err` in generate_finish()
+  mk_keys_and_certs(opt->cn, opt->altname, atoi(opt->key_size), opt->days,
+                    opt->overwrite_all, &err);
+  g_task_return_pointer(task, err, NULL);
 }
 
 void on_generate_clicked() {
-  if (NULL != g_subprocess_get_identifier(gui.cmd)) { // process isn't dead
-    g_debug("abort Make");
-#ifdef __MINGW64__
-    g_subprocess_force_exit(gui.cmd); /* SIGKILL */
-#else
-    g_subprocess_send_signal(gui.cmd, 2); /* SIGINT */
-#endif
-    g_cancellable_cancel(gui.cmd_ca);
-    return;
-  }
-
   GenOpt *opt = generator_options();
 
   if (!strlen(opt->cn)) {
@@ -191,57 +191,17 @@ void on_generate_clicked() {
     return;
   }
 
-  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", opt->out, opt->days, opt->key_size, opt->cn, opt->altname, (int)strlen(opt->altname), opt->overwrite_all);
-
-  char server_cert[BUFSIZ];
-  snprintf(server_cert, sizeof server_cert, "%s/%s.crt", opt->out, opt->cn);
-  g_debug("unlinking %s", server_cert);
-  if (!opt->overwrite_all) g_unlink(server_cert);
-
-  char target[BUFSIZ];
-  snprintf(target, sizeof target, "%s.crt", opt->cn);
-
-  g_autofree gchar *make = g_find_program_in_path("make");
-
-  gchar makefile[PATH_MAX];
-  snprintf(makefile, sizeof makefile, "%s/dummy-root-ca.mk", gui.exe_dir);
-
-  gchar d[BUFSIZ];
-  snprintf(d, sizeof d, "d=%d", opt->days);
-
-  gchar key_size[BUFSIZ];
-  snprintf(key_size, sizeof key_size, "key_size=%s", opt->key_size);
-
-  gchar tls_altname[BUFSIZ];
-  snprintf(tls_altname, sizeof tls_altname, "tls.altname=%s", opt->altname);
-
-  gchar openssl[BUFSIZ];
-  g_autofree gchar *openssl_cmd = g_find_program_in_path("openssl");
-  snprintf(openssl, sizeof openssl, "openssl=%s", openssl_cmd);
-
-  g_autoptr(GError) err = NULL;
-  g_cancellable_reset(gui.cmd_ca);
-  g_mkdir_with_parents(opt->out, 0775);
-
-  GSubprocessLauncher *lc = g_subprocess_launcher_new(G_SUBPROCESS_FLAGS_NONE);
-  g_subprocess_launcher_set_cwd(lc, opt->out);
-  gui.cmd = g_subprocess_launcher_spawn(lc, &err,
-                                        make, opt->overwrite_all ? "-B" : "-b",
-                                        "-f", makefile, d, key_size,
-                                        tls_altname, openssl, target,
-                                        NULL);
-  genopt_free(&opt);
-  g_object_unref(lc);
-  if (err) {
-    info(err->message);
-    return;
-  }
-
-  g_subprocess_wait_async(gui.cmd, gui.cmd_ca, cmd_callback, NULL);
-
   info("Processing...");
   spinner();
-  generate_button_label_toggle();
+  generate_button_toggle();
+
+  g_debug("out: `%s`, days: `%d`, key size: `%s`, CN: `%s`, subjectAltName: `%s` [%d], overwrite all: %d", opt->out, opt->days, opt->key_size, opt->cn, opt->altname, (int)strlen(opt->altname), opt->overwrite_all);
+
+  // uncancellable, frees `opt` in generate_finish()
+  GTask *task = g_task_new(NULL, NULL, generator_finish, opt);
+  g_task_set_task_data(task, opt, NULL);
+  g_task_run_in_thread(task, generator_in_thread);
+  g_object_unref(task);
 }
 
 int main(int argc, char **argv) {
@@ -295,9 +255,6 @@ int main(int argc, char **argv) {
   if (!gtk_css_provider_load_from_path(cssProvider, buf, &error))
     g_error("%s", error->message);
   gtk_style_context_add_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_USER);
-
-  // for 'abort' button
-  gui.cmd_ca = g_cancellable_new();
 
   gtk_widget_show(toplevel);
   gtk_main();

@@ -16,8 +16,9 @@ ld.extra := -Wl,-export-all-symbols #-mwindows
 progname := dummy-root-ca.exe
 endif
 
-CFLAGS := $(shell $(pkg-config) --cflags gtk+-3.0) -g -Wall -Werror
-LDFLAGS := $(shell $(pkg-config) --libs gtk+-3.0) $(ld.extra)
+libs := gtk+-3.0 openssl
+CFLAGS := $(shell $(pkg-config) --cflags $(libs)) -g -Wall -Werror
+LDFLAGS := $(shell $(pkg-config) --libs $(libs)) $(ld.extra)
 
 static.dest := $(patsubst %, $(out)/%, gui.xml style.css dummy-root-ca.mk)
 obj :=
@@ -30,10 +31,10 @@ $(mkdir)
 $(CC) $< -o $@ $(obj) $(CFLAGS) $(LDFLAGS)
 endef
 
-$(out)/%: %.c lib.c; $(exe)
+$(out)/%: %.c lib.c ca.c; $(exe)
 
 $(out)/%.exe: obj += $(out)/.cache/meta.res
-$(out)/%.exe: %.c lib.c $(out)/.cache/meta.res
+$(out)/%.exe: %.c lib.c ca.c $(out)/.cache/meta.res
 	$(exe)
 
 $(static.dest): $(out)/%: %
