@@ -12,7 +12,7 @@ rel := $(progname)-$(ver)
 ifeq ($(target),x86_64-w64-mingw32)
 pkg-config := x86_64-w64-mingw32-pkg-config
 CC := x86_64-w64-mingw32-gcc
-ld.extra := -Wl,-export-all-symbols #-mwindows
+ld.extra := -Wl,-export-all-symbols -mwindows
 progname := dummy-root-ca.exe
 endif
 
@@ -67,13 +67,9 @@ $(zip): $(all)
 	rm -rf $(dir $@) $(releases)/$(rel).zip
 	$(mkdir)/{bin,lib,share/icons,share/glib-2.0/schemas}
 	peldd $(out)/$(progname) --ignore-errors -t | xargs cp -t $(dir $@)/bin
-	cp $(mingw)/bin/gspawn-win64-helper-console.exe \
-	 $(mingw)/bin/libxml2-2.dll \
-	 $(mingw)/bin/librsvg-2-2.dll \
-	 vendor/* $^ \
-	 $(dir $@)/bin
+	cp $(mingw)/bin/{libxml2-2.dll,librsvg-2-2.dll} $^ $(dir $@)/bin
 	cp -r $(mingw)/lib/gdk-pixbuf-2.0 $(dir $@)/lib
-	mv $(dir $@)/bin/loaders.cache $(dir $@)/lib/gdk-pixbuf-2.0/2.10.0
+	cp vendor/loaders.cache $(dir $@)/lib/gdk-pixbuf-2.0/2.10.0
 	cp -r $(mingw)/share/icons/{Adwaita,hicolor} $(dir $@)/share/icons
 	cp -r $(mingw)/share/glib-2.0/schemas $(dir $@)/share/glib-2.0
 	cd $(dir $@) && zip -qr ../$(notdir $@) .

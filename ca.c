@@ -1,19 +1,22 @@
 #include <sys/stat.h>
 
+#define OPENSSL_API_COMPAT 1*10000 + 1*100 + 1
 #include <openssl/pem.h>
 #include <openssl/x509v3.h>
 
 #include <glib.h>
 
+// change this to a single call to `EVP_RSA_gen()` for openssl 3
 EVP_PKEY* key_new(int numbits) {
-  EVP_PKEY *key = NULL;
-  EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL);
+  EVP_PKEY *key = EVP_PKEY_new();
 
-  EVP_PKEY_keygen_init(ctx);
-  EVP_PKEY_CTX_set_rsa_keygen_bits(ctx, numbits);
-  EVP_PKEY_generate(ctx, &key);
+  BIGNUM *e = BN_new();
+  BN_set_word(e, RSA_F4);
+  RSA *rsa = RSA_new();
+  RSA_generate_key_ex(rsa, numbits, e, NULL);
+  EVP_PKEY_assign_RSA(key, rsa);
 
-  EVP_PKEY_CTX_free(ctx);
+  BN_free(e);
   return key;
 }
 
@@ -115,7 +118,7 @@ int key_save(char *name, EVP_PKEY *key) {
   chmod(name, 0600);
 
   int r = 1;
-  if (!PEM_write_PrivateKey(fp, key, NULL, NULL, -1, NULL, NULL)) r = 0;
+  if (!PEM_write_PrivateKey(fp, key, NULL, NULL, 0, NULL, NULL)) r = 0;
   fclose(fp);
   return r;
 }
