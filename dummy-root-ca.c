@@ -160,25 +160,20 @@ void generator_finish(GObject *_unused, GAsyncResult *res, gpointer user_data) {
   GError *err = g_task_propagate_pointer(G_TASK(res), NULL);
   g_debug("generate_finish: error = %s", err ? err->message : "none");
 
-  if (err) {
-    info(err->message);         /* FIXME */
-  } else {
-    info("Done.");
-  }
+  info(err ? err->message : "Done.");
 
   if (err) g_error_free(err);
   spinner();
   generate_button_toggle();
 }
 
-/* FIXME: use opt->out */
 void generator_in_thread(GTask *task, gpointer _source_object,
                          gpointer task_data, GCancellable *_cancellable) {
   g_debug("generate_in_thread");
   GenOpt *opt = task_data;
   GError *err = NULL; // frees `err` in generate_finish()
-  mk_keys_and_certs(opt->cn, opt->altname, atoi(opt->key_size), opt->days,
-                    opt->overwrite_all, &err);
+  mk_keys_and_certs(opt->out, opt->cn, opt->altname, atoi(opt->key_size),
+                    opt->days, opt->overwrite_all, &err);
   g_task_return_pointer(task, err, NULL);
 }
 
@@ -188,6 +183,11 @@ void on_generate_clicked() {
   if (!strlen(opt->cn)) {
     info("CommonName is empty or invalid");
     genopt_free(&opt);
+    return;
+  }
+
+  if (-1 == g_mkdir_with_parents(opt->out, 0775)) {
+    info(strerror(errno));
     return;
   }
 

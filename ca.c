@@ -81,7 +81,6 @@ X509* cert(EVP_PKEY *key, EVP_PKEY *CA_key, X509* CA_crt,
   addext(crt, issuer, NID_subject_key_identifier, "hash");
   addext(crt, issuer, NID_authority_key_identifier, "keyid:always");
   if (CA_key) {
-    g_debug("altname len=%ld", strlen(altname));
     char buf[BUFSIZ];
     if (strlen(altname))
       snprintf(buf, sizeof buf, "%s", altname);
@@ -151,20 +150,25 @@ EVP_PKEY* mk_key_load_or_create(char *file, int numbits, gboolean regenerate_all
     if (!key_save(file, key)) {
       g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_FAILED,
                   "failed to make %s", file);
+      EVP_PKEY_free(key);
+      key = NULL;
     }
   }
 
   return key;
 }
 
-int mk_keys_and_certs(const char *CN, char *altname, int numbits, int days,
-                      gboolean regenerate_all, GError **err) {
-  EVP_PKEY *root_key = mk_key_load_or_create("root.pem", numbits, regenerate_all, err);
+int mk_keys_and_certs(const char *out_dir, const char *CN, char *altname,
+                      int numbits, int days, gboolean regenerate_all,
+                      GError **err) {
+  char file[PATH_MAX];
+
+  snprintf(file, sizeof file, "%s/root.pem", out_dir);
+  EVP_PKEY *root_key = mk_key_load_or_create(file, numbits, regenerate_all, err);
   if (!root_key) return 0;
 
-  char server_key_file[PATH_MAX];
-  snprintf(server_key_file, PATH_MAX, "%s.pem", CN);
-  EVP_PKEY *server_key = mk_key_load_or_create(server_key_file, numbits, regenerate_all, err);
+  snprintf(file, PATH_MAX, "%s/%s.pem", out_dir, CN);
+  EVP_PKEY *server_key = mk_key_load_or_create(file, numbits, regenerate_all, err);
   if (!server_key) {
     EVP_PKEY_free(root_key);
     return 0;
@@ -174,7 +178,8 @@ int mk_keys_and_certs(const char *CN, char *altname, int numbits, int days,
   GError *err2 = NULL;
   X509 *root_crt = NULL, *server_crt = NULL;
 
-  root_crt = regenerate_all ? NULL : cert_read("root.crt");
+  snprintf(file, sizeof file, "%s/root.crt", out_dir);
+  root_crt = regenerate_all ? NULL : cert_read(file);
   if (!root_crt) {
     root_crt = cert(root_key, NULL, NULL,"Dummy Root CA", NULL, days, &err2);
     if (!root_crt) {
@@ -184,7 +189,7 @@ int mk_keys_and_certs(const char *CN, char *altname, int numbits, int days,
       g_error_free(err2);
       goto mk_keys_and_certs_cleanup;
     }
-    if (!crt_save("root.crt", root_crt)) {
+    if (!crt_save(file, root_crt)) {
       r = 0;
       g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_FAILED,
                   "failed to save root.crt");
@@ -194,20 +199,19 @@ int mk_keys_and_certs(const char *CN, char *altname, int numbits, int days,
 
   // always remake
   g_clear_error(&err2);
-  char server_crt_file[PATH_MAX];
-  snprintf(server_crt_file, PATH_MAX, "%s.crt", CN);
+  snprintf(file, PATH_MAX, "%s/%s.crt", out_dir, CN);
   server_crt = cert(server_key, root_key, root_crt, CN, altname, days-1, &err2);
   if (!server_crt) {
     r = 0;
     g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_FAILED,
-                "failed to make %s: %s", server_crt_file, err2->message);
+                "failed to make %s: %s", file, err2->message);
     g_error_free(err2);
     goto mk_keys_and_certs_cleanup;
   }
-  if (!crt_save(server_crt_file, server_crt)) {
+  if (!crt_save(file, server_crt)) {
     r = 0;
     g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_FAILED,
-                "failed to save %s", server_crt_file);
+                "failed to save %s", file);
   }
 
  mk_keys_and_certs_cleanup:
