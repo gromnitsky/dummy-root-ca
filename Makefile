@@ -17,7 +17,7 @@ progname := dummy-root-ca.exe
 endif
 
 libs := gtk+-3.0 openssl
-CFLAGS := $(shell $(pkg-config) --cflags $(libs)) -g -Wall -Werror
+CFLAGS := $(shell $(pkg-config) --cflags $(libs)) -g -Wall -Werror -std=c17
 LDFLAGS := $(shell $(pkg-config) --libs $(libs)) $(ld.extra)
 
 static.dest := $(patsubst %, $(out)/%, gui.xml style.css dummy-root-ca.mk)

@@ -1,6 +1,12 @@
+#define _XOPEN_SOURCE 700
+#define _POSIX_C_SOURCE 200809L
+
 #ifdef __MINGW64__
+#define G_LOG_USE_STRUCTURED 1
 #include <libloaderapi.h>
 #endif
+
+#include <fcntl.h>
 
 #define G_LOG_DOMAIN "dummy-root-ca"
 #include <glib/gstdio.h>
@@ -207,6 +213,20 @@ void on_generate_clicked() {
 int main(int argc, char **argv) {
   putenv("GTK_CSD=0");          /* how do I set this via Glade? */
 
+  // state file
+  gui.inifile = g_build_filename(g_get_user_state_dir(),
+                                 G_LOG_DOMAIN, "genopt.ini", NULL);
+  g_autofree gchar *ini_dir = g_path_get_dirname(gui.inifile);
+  g_mkdir_with_parents(ini_dir, 0775);
+  gui.ini = g_key_file_new();
+
+#ifdef __MINGW64__
+  // log to a file, instead of stderr
+  g_autofree gchar *logfile = g_build_filename(ini_dir, "log.txt", NULL);
+  int logfile_fd = open(logfile, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+  g_log_set_writer_func(my_log_writer, &logfile_fd, NULL);
+#endif
+
   GError *error = NULL;
   if (!gtk_init_with_args(&argc, &argv, "output_dir", NULL, NULL, &error))
     g_error("%s", error->message);
@@ -225,13 +245,8 @@ int main(int argc, char **argv) {
 
   GtkEntry *out = GTK_ENTRY(gtk_builder_get_object(gui.bld, "out"));
 
-  // load state file
-  gui.inifile = g_build_filename(g_get_user_state_dir(),
-                                 G_LOG_DOMAIN, "genopt.ini", NULL);
+  // load from the state file
   g_debug("inifile: %s", gui.inifile);
-  g_autofree gchar *ini_dir = g_path_get_dirname(gui.inifile);
-  g_mkdir_with_parents(ini_dir, 0775);
-  gui.ini = g_key_file_new();
   if (g_key_file_load_from_file(gui.ini, gui.inifile, G_KEY_FILE_NONE, NULL)) {
     g_autofree gchar *v = g_key_file_get_string(gui.ini, "struct", "out", NULL);
     if (v) gtk_entry_set_text(out, v);
