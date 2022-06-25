@@ -33,6 +33,18 @@ gchar* altname(const gchar *text) {
   return g_strdup(r->str);
 }
 
+char *log_level_to_str(GLogLevelFlags level) {
+  switch (level) {
+  case G_LOG_LEVEL_ERROR: return "ERROR";
+  case G_LOG_LEVEL_CRITICAL: return "CRITICAL";
+  case G_LOG_LEVEL_WARNING: return "WARNING";
+  case G_LOG_LEVEL_MESSAGE: return "MESSAGE";
+  case G_LOG_LEVEL_INFO: return "INFO";
+  case G_LOG_LEVEL_DEBUG: return "DEBUG";
+  default: return "UNKNOWN";
+  }
+}
+
 // a custom log writer for Windows
 GLogWriterOutput my_log_writer(GLogLevelFlags log_level,
                                const GLogField *fields,
@@ -44,6 +56,7 @@ GLogWriterOutput my_log_writer(GLogLevelFlags log_level,
   int *fd = user_data;
   if (!fd || *fd == -1) return g_log_writer_standard_streams(log_level, fields, n_fields, user_data);
 
+  const char *domain = NULL;
   const char *file = NULL;
   const char *line = NULL;
   const char *func = NULL;
@@ -51,10 +64,13 @@ GLogWriterOutput my_log_writer(GLogLevelFlags log_level,
 
   for (const GLogField* p = fields; n_fields > 0; n_fields--, p++) {
     if (p->length != -1) continue;
-    if (0 == strcmp("GLIB_DOMAIN", p->key)
-        && 0 != strcmp(p->value, G_LOG_DOMAIN))
-      return G_LOG_WRITER_HANDLED;
+    if (0 == strcmp("GLIB_DOMAIN", p->key)) {
+      char re[BUFSIZ]; snprintf(re, sizeof re, "^(Gtk|%s)$", G_LOG_DOMAIN);
+      if (!g_regex_match_simple(re, p->value, 0, 0))
+        return G_LOG_WRITER_HANDLED;
+    }
 
+    if (0 == strcmp("GLIB_DOMAIN", p->key)) domain = p->value;
     if (0 == strcmp("CODE_FILE", p->key)) file = p->value;
     if (0 == strcmp("CODE_LINE", p->key)) line = p->value;
     if (0 == strcmp("CODE_FUNC", p->key)) func = p->value;
@@ -68,9 +84,9 @@ GLogWriterOutput my_log_writer(GLogLevelFlags log_level,
   strftime(time_buf, sizeof time_buf, "%H:%M:%S", &now_tm);
 
   char buf[BUFSIZ];
-  int bufsize = snprintf(buf, sizeof buf, "%s.%03d %03d %s:%s:%s: %s\n",
-                         time_buf, (int)((now / 1000) % 1000),
-                         log_level, file, line, func, message);
+  int bufsize = snprintf(buf, sizeof buf, "%s.%03d %s %-8s %s:%s:%s: %s\n",
+                         time_buf, (int)((now / 1000) % 1000), domain,
+                         log_level_to_str(log_level), file,line,func, message);
   if (-1 == write(*fd, buf, bufsize))
     return g_log_writer_standard_streams(log_level, fields, n_fields, user_data);
 

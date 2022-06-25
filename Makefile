@@ -67,7 +67,8 @@ $(zip): $(all)
 	rm -rf $(dir $@) $(releases)/$(rel).zip
 	$(mkdir)/{bin,lib,share/icons,share/glib-2.0/schemas}
 	peldd $(out)/$(progname) --ignore-errors -t | xargs cp -t $(dir $@)/bin
-	cp $(mingw)/bin/{libxml2-2.dll,librsvg-2-2.dll} $^ $(dir $@)/bin
+	cp $(mingw)/bin/gspawn-win64-helper* \
+	 $(mingw)/bin/{libxml2-2.dll,librsvg-2-2.dll} $^ $(dir $@)/bin
 	cp -r $(mingw)/lib/gdk-pixbuf-2.0 $(dir $@)/lib
 	cp vendor/loaders.cache $(dir $@)/lib/gdk-pixbuf-2.0/2.10.0
 	cp -r $(mingw)/share/icons/{Adwaita,hicolor} $(dir $@)/share/icons
